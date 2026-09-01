@@ -26,32 +26,42 @@
 // =====================================================================
 // STORY CONTENT — edit this block to swap in real story text.
 // This is the ONLY part of the file you should need to touch to update
-// the story. Each beat needs: id, text, and emotion (must be one of the
-// keys in EMOTIONS below: calm / annoyed / anxious / confused).
+// the story. Each beat needs: id, text, emotion (must be one of the keys
+// in EMOTIONS below), and image (path into the images/ folder).
 // To edit on GitHub: open this file in the repo, click the pencil
 // (Edit) icon, find this block, change the text between the quotes,
 // then commit. No need to touch anything below this block.
+//
+// PLACEHOLDER TEXT — written by interpreting Story-Slide-1..4 (protagonist
+// "Max"), matched to the real emotion labels baked into the Emotion-Slide
+// filenames (Exhaustion/Joy/Overwhelm/Relief). Replace with Sonal's copy
+// when ready. Only 4 of the 6 available images are wired in — beats 5/6
+// (Anxiety/Excitement) are pending a further story rework.
 // =====================================================================
 const STORY = [
   {
     id: 1,
-    text: "One morning, Sam wakes up. The room is quiet, and sunlight comes softly through the curtains. He feels calm.",
-    emotion: "calm",
+    text: "Max wakes up when his alarm clock rings — beep, beep, beep! He rubs his eyes and gives a big, long yawn. He feels exhausted.",
+    emotion: "exhausted",
+    image: "images/Story-Slide-1.jpeg",
   },
   {
     id: 2,
-    text: "Mum calls up the stairs: “Time to get ready for school!” Sam was still half-asleep, and now everything feels rushed. He feels annoyed.",
-    emotion: "annoyed",
+    text: "At breakfast, Max pours golden syrup over his favourite waffles. He takes a big bite and can't stop smiling. He feels joyful.",
+    emotion: "joyful",
+    image: "images/Story-Slide-2.jpeg",
   },
   {
     id: 3,
-    text: "Sam opens his cupboard to get dressed. Everything inside looks jumbled together, and it's hard to know where to start. He feels anxious.",
-    emotion: "anxious",
+    text: "Max opens his cupboard to get dressed. Clothes are piled everywhere and he doesn't know where to start. His thoughts feel loud and jumbled. He feels overwhelmed.",
+    emotion: "overwhelmed",
+    image: "images/Story-Slide-3.jpeg",
   },
   {
     id: 4,
-    text: "He calls for Mum. She says, “Wear the white top and the blue jeans.” But there are two white tops and two pairs of blue jeans in the cupboard. He feels confused.",
-    emotion: "confused",
+    text: "Mum sits down next to Max and picks out his jeans and white top together. Max takes a deep breath, and his shoulders relax. He feels relieved.",
+    emotion: "relieved",
+    image: "images/Story-Slide-4.jpeg",
   },
 ];
 
@@ -106,11 +116,15 @@ const COLORS = {
   danger: "#D9534F",
 };
 
+// Matches the 4 emotion labels baked into the Emotion-Slide filenames
+// (Exhaustion/Joy/Overwhelm/Relief) rather than an invented set — see
+// the STORY block above. Slides 5/6 (Anxiety/Excitement) aren't wired in
+// yet, pending a story rework to use all 6.
 const EMOTIONS = [
-  { key: "calm", label: "Calm" },
-  { key: "annoyed", label: "Annoyed" },
-  { key: "anxious", label: "Anxious" },
-  { key: "confused", label: "Confused" },
+  { key: "exhausted", label: "Exhausted", image: "images/Emotion-Slide-1-Exhaustion.jpeg" },
+  { key: "joyful", label: "Joyful", image: "images/Emotion-Slide-2-Joy.jpeg" },
+  { key: "overwhelmed", label: "Overwhelmed", image: "images/Emotion-Slide-3-Overwhelm.jpeg" },
+  { key: "relieved", label: "Relieved", image: "images/Emotion-Slide-4-Relief.jpeg" },
 ];
 
 function Face({ emotion, size = 56 }) {
@@ -205,10 +219,10 @@ function MicIcon({ color }) {
   );
 }
 
-function ProgressDots({ total, current }) {
+function ProgressDots({ total, current, style }) {
   return h(
     "div",
-    { style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 28 } },
+    { style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 28, ...style } },
     Array.from({ length: total }).map((_, i) =>
       h("div", {
         key: i,
@@ -283,18 +297,23 @@ function App() {
   const [feedback, setFeedback] = useState("");
   const [correctFlash, setCorrectFlash] = useState(false);
 
-  // --- Voice recording state ---
+  // --- Voice recording state (one clip per beat, recorded during setup) ---
+  const [recordBeatIndex, setRecordBeatIndex] = useState(0);
+  const [beatClips, setBeatClips] = useState(() => Array(STORY.length).fill(null)); // {blob, url} | null, per beat
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState(null);
   const [recordedUrl, setRecordedUrl] = useState(null);
   const [recordError, setRecordError] = useState("");
-  const [uploadStatus, setUploadStatus] = useState("idle"); // idle | uploading | done | error
+
+  // --- Story playback ---
+  const [muted, setMuted] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
+  const audioRef = useRef(null);
 
   const beat = STORY[beatIndex];
   const isLastBeat = beatIndex === STORY.length - 1;
@@ -360,7 +379,6 @@ function App() {
   function clearRecording() {
     setRecordedBlob(null);
     setRecordedUrl(null);
-    setUploadStatus("idle");
     setRecordError("");
   }
 
@@ -369,37 +387,67 @@ function App() {
     if (!file) return;
     setRecordedBlob(file);
     setRecordedUrl(URL.createObjectURL(file));
-    setUploadStatus("idle");
     setRecordError("");
   }
 
-  async function uploadRecording() {
-    if (!recordedBlob) return;
-    if (!FIREBASE_CONFIGURED || !storageRef) {
-      // No Firebase project wired up yet — just proceed with local playback only.
-      setScreen("story");
-      return;
-    }
-    setUploadStatus("uploading");
-    try {
-      const ext = (recordedBlob.type && recordedBlob.type.split("/")[1]) || "webm";
-      const safeName = (name.trim() || "anon").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const path = `voice-intros/${safeName}-${Date.now()}.${ext}`;
-      await storageRef.child(path).put(recordedBlob);
-      setUploadStatus("done");
-      setScreen("story");
-    } catch (err) {
-      setUploadStatus("error");
-      setRecordError("Upload failed. You can still continue — the recording will just stay local to this session.");
+  // Saves (or skips) the clip currently being recorded for `recordBeatIndex`,
+  // then moves to the next beat's recording step, or into the story once all
+  // beats have a clip (or have been skipped). Clips stay in memory only —
+  // no Firebase upload yet, see FIREBASE_CONFIG comment above.
+  function saveClipAndAdvance() {
+    const isLastRecordStep = recordBeatIndex === STORY.length - 1;
+    setBeatClips((prev) => {
+      const next = [...prev];
+      next[recordBeatIndex] = recordedBlob ? { blob: recordedBlob, url: recordedUrl } : null;
+      return next;
+    });
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setRecordError("");
+    if (isLastRecordStep) {
+      startStory();
+    } else {
+      setRecordBeatIndex((i) => i + 1);
     }
   }
 
+  function stopBeatAudio() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  }
+
+  function playBeatAudio(index) {
+    const clip = beatClips[index];
+    if (!audioRef.current || !clip) return;
+    audioRef.current.src = clip.url;
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(() => {});
+  }
+
   useEffect(() => {
+    audioRef.current = new Audio();
     return () => {
       clearInterval(timerRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioRef.current) audioRef.current.pause();
     };
   }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.muted = muted;
+  }, [muted]);
+
+  // Autoplay the current beat's clip when its narration step loads, and
+  // stop playback as soon as the user leaves that step (identify/face, next
+  // beat, or out of the story entirely).
+  useEffect(() => {
+    if (screen === "story" && step === "narrate") {
+      playBeatAudio(beatIndex);
+    } else {
+      stopBeatAudio();
+    }
+  }, [screen, step, beatIndex]);
 
   function handleEmotionPick(key) {
     if (key === beat.emotion) {
@@ -432,11 +480,8 @@ function App() {
     }
   }
 
-  function playRecordedIntro() {
-    if (recordedUrl) {
-      const audio = new Audio(recordedUrl);
-      audio.play();
-    }
+  function toggleMute() {
+    setMuted((m) => !m);
   }
 
   const shellStyle = {
@@ -491,6 +536,7 @@ function App() {
     );
   } else if (screen === "voice") {
     const canUseRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const recordBeat = STORY[recordBeatIndex];
     screenContent = h(
       "div",
       { style: { textAlign: "center", paddingTop: 24 } },
@@ -498,15 +544,21 @@ function App() {
         "div",
         {
           style: {
-            width: 88, height: 88, borderRadius: "50%", background: COLORS.highlightBg,
-            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 28px",
+            width: 72, height: 72, borderRadius: "50%", background: COLORS.highlightBg,
+            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px",
           },
         },
         h(MicIcon, { color: COLORS.primaryDeep })
       ),
-      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24, marginBottom: 12, color: COLORS.primaryDeep } }, `Hi ${name || "there"}`),
-      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 24, padding: "0 8px" } },
-        "This story is told in Mum's voice. Record a short intro below, or upload a recording."
+      h(ProgressDots, { total: STORY.length, current: recordBeatIndex }),
+      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 22, marginBottom: 12, color: COLORS.primaryDeep } },
+        `Record clip ${recordBeatIndex + 1} of ${STORY.length}`
+      ),
+      h(
+        "div",
+        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 16, padding: 18, marginBottom: 20, textAlign: "left" } },
+        h("p", { style: { fontSize: 13, fontFamily: DISPLAY_FONT, fontWeight: 700, color: COLORS.inkSoft, marginBottom: 6 } }, "Read this bit aloud:"),
+        h("p", { style: { fontSize: 15, lineHeight: 1.6, margin: 0 } }, recordBeat.text)
       ),
 
       // Recorder controls
@@ -548,40 +600,60 @@ function App() {
 
       recordError && h("p", { style: { color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, recordError),
 
-      !FIREBASE_CONFIGURED && recordedUrl && h(
-        "p", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 16, fontStyle: "italic" } },
-        "Firebase isn't configured yet, so this recording will only play back locally for now."
-      ),
-
-      h(PrimaryButton, {
-        onClick: recordedUrl ? uploadRecording : startStory,
-        disabled: uploadStatus === "uploading",
-      }, uploadStatus === "uploading" ? "Uploading…" : (recordedUrl ? "Continue" : "Skip for now"))
+      h(PrimaryButton, { onClick: saveClipAndAdvance },
+        recordedUrl
+          ? (recordBeatIndex === STORY.length - 1 ? "Continue" : "Save & continue")
+          : (recordBeatIndex === STORY.length - 1 ? "Skip for now" : "Skip & continue")
+      )
     );
   } else if (screen === "story") {
+    const hasClip = !!beatClips[beatIndex];
     screenContent = h(
       "div",
       null,
-      h(ProgressDots, { total: STORY.length, current: beatIndex }),
       h(
         "div",
-        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, padding: 28 } },
+        { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 } },
+        h("div", { style: { width: 60 } }),
+        h(ProgressDots, { total: STORY.length, current: beatIndex, style: { marginBottom: 0 } }),
+        h(TextButton, { onClick: toggleMute, style: { width: 60, textAlign: "right" } }, muted ? "Unmute" : "Mute")
+      ),
+      h(
+        "div",
+        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, padding: 28, marginTop: 24 } },
 
         step === "narrate" && h(
           "div",
           null,
-          h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
+          beat.image
+            ? h(
+                "div",
+                { style: { position: "relative", borderRadius: 14, overflow: "hidden", marginBottom: 24, aspectRatio: "1408 / 768" } },
+                h("img", { src: beat.image, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }),
+                h(
+                  "div",
+                  {
+                    style: {
+                      position: "absolute", left: 0, right: 0, bottom: 0,
+                      background: "linear-gradient(to top, rgba(20,15,10,0.85) 0%, rgba(20,15,10,0.6) 60%, rgba(20,15,10,0) 100%)",
+                      padding: "36px 16px 16px",
+                    },
+                  },
+                  h("p", { style: { fontSize: 16, lineHeight: 1.6, margin: 0, color: "#FFFFFF", textShadow: "0 1px 4px rgba(0,0,0,0.6)" } }, beat.text)
+                )
+              )
+            : h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
           h(
             "button",
             {
-              onClick: playRecordedIntro,
-              disabled: !recordedUrl,
+              onClick: () => playBeatAudio(beatIndex),
+              disabled: !hasClip,
               style: {
                 display: "inline-flex", alignItems: "center", gap: 8,
                 background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
                 borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
-                fontSize: 14, cursor: recordedUrl ? "pointer" : "not-allowed",
-                opacity: recordedUrl ? 1 : 0.5, marginBottom: 24,
+                fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
+                opacity: hasClip ? 1 : 0.5, marginBottom: 24,
               },
             },
             h(PlayIcon, null),
@@ -604,13 +676,11 @@ function App() {
                   key: e.key,
                   onClick: () => handleEmotionPick(e.key),
                   style: {
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                    padding: "16px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                    padding: "22px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
                     background: COLORS.highlightBg, cursor: "pointer", fontFamily: BODY_FONT,
-                    fontWeight: 700, fontSize: 14, color: COLORS.primaryDeep,
+                    fontWeight: 700, fontSize: 16, color: COLORS.primaryDeep,
                   },
                 },
-                h(Face, { emotion: e.key, size: 40 }),
                 e.label
               )
             )
@@ -634,11 +704,13 @@ function App() {
                   "aria-label": e.label,
                   style: {
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    padding: "18px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
-                    background: COLORS.highlightBg, cursor: "pointer",
+                    padding: 4, borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                    background: COLORS.highlightBg, cursor: "pointer", overflow: "hidden",
                   },
                 },
-                h(Face, { emotion: e.key, size: 56 })
+                e.image
+                  ? h("img", { src: e.image, alt: "", style: { width: "100%", aspectRatio: "1.08", objectFit: "cover", borderRadius: 10 } })
+                  : h(Face, { emotion: e.key, size: 56 })
               )
             )
           ),
