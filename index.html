@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Emotions Story — Prototype</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #FFF8ED; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React (no build step — plain UMD builds) -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+<!-- Firebase (compat SDK — plain <script> globals, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<script>
+"use strict";
+
+// =====================================================================
+// STORY CONTENT — edit this block to swap in real story text.
+// This is the ONLY part of the file you should need to touch to update
+// the story. Each beat needs: id, text, and emotion (must be one of the
+// keys in EMOTIONS below: calm / annoyed / anxious / confused).
+// To edit on GitHub: open this file in the repo, click the pencil
+// (Edit) icon, find this block, change the text between the quotes,
+// then commit. No need to touch anything below this block.
+// =====================================================================
+const STORY = [
+  {
+    id: 1,
+    text: "One morning, Sam wakes up. The room is quiet, and sunlight comes softly through the curtains. He feels calm.",
+    emotion: "calm",
+  },
+  {
+    id: 2,
+    text: "Mum calls up the stairs: “Time to get ready for school!” Sam was still half-asleep, and now everything feels rushed. He feels annoyed.",
+    emotion: "annoyed",
+  },
+  {
+    id: 3,
+    text: "Sam opens his cupboard to get dressed. Everything inside looks jumbled together, and it's hard to know where to start. He feels anxious.",
+    emotion: "anxious",
+  },
+  {
+    id: 4,
+    text: "He calls for Mum. She says, “Wear the white top and the blue jeans.” But there are two white tops and two pairs of blue jeans in the cupboard. He feels confused.",
+    emotion: "confused",
+  },
+];
+
+// Demo login codeword (no real auth in this prototype — see brief).
+const CODEWORD = "sunshine";
+
+// =====================================================================
+// FIREBASE CONFIG — paste your Web app config here from:
+// Firebase Console > Project settings > General > Your apps > SDK setup.
+// This object is safe to be public in client code — Firebase access is
+// controlled by Storage security rules, not by hiding these values.
+// Until this is filled in, voice recordings still work for local
+// playback in the browser, they just won't be saved to the cloud.
+// =====================================================================
+const FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_API_KEY_HERE",
+  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_PROJECT.appspot.com",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID",
+};
+
+const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
+let storageRef = null;
+if (FIREBASE_CONFIGURED) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  storageRef = firebase.storage().ref();
+}
+
+// =====================================================================
+// App logic below — no need to edit this for content changes.
+// =====================================================================
+const h = React.createElement;
+const Fragment = React.Fragment;
+const { useState, useRef, useEffect } = React;
+
+const DISPLAY_FONT = "'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+const BODY_FONT = "'Segoe UI', system-ui, -apple-system, sans-serif";
+
+const COLORS = {
+  bg: "#FFF8ED",
+  surface: "#FFFFFF",
+  ink: "#3D3833",
+  inkSoft: "#6B655E",
+  primary: "#2FA6C7",
+  primaryDeep: "#1F87A4",
+  highlightBg: "#E1F1FA",
+  border: "#EFE6D3",
+  success: "#3FA85C",
+  successBg: "#E4F6E8",
+  danger: "#D9534F",
+};
+
+const EMOTIONS = [
+  { key: "calm", label: "Calm" },
+  { key: "annoyed", label: "Annoyed" },
+  { key: "anxious", label: "Anxious" },
+  { key: "confused", label: "Confused" },
+];
+
+function Face({ emotion, size = 56 }) {
+  const s = size;
+  const stroke = COLORS.ink;
+  const common = {
+    fill: "none",
+    stroke,
+    strokeWidth: 3,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+
+  let brows = null;
+  let eyes = null;
+  let mouth = null;
+  let cheeks = null;
+
+  if (emotion === "calm") {
+    brows = h(Fragment, null,
+      h("path", { d: "M20 23 Q24 21 28 23", ...common }),
+      h("path", { d: "M40 23 Q44 21 48 23", ...common })
+    );
+    eyes = h(Fragment, null,
+      h("path", { d: "M19 30 Q24 34 29 30", ...common }),
+      h("path", { d: "M39 30 Q44 34 49 30", ...common })
+    );
+    mouth = h("path", { d: "M25 43 Q34 50 43 43", ...common });
+    cheeks = h(Fragment, null,
+      h("circle", { cx: 19, cy: 39, r: 4, fill: COLORS.primary, opacity: 0.18 }),
+      h("circle", { cx: 49, cy: 39, r: 4, fill: COLORS.primary, opacity: 0.18 })
+    );
+  } else if (emotion === "annoyed") {
+    brows = h(Fragment, null,
+      h("path", { d: "M19 22 L29 27", ...common }),
+      h("path", { d: "M49 22 L39 27", ...common })
+    );
+    eyes = h(Fragment, null,
+      h("circle", { cx: 24, cy: 31, r: 2.6, fill: stroke, stroke: "none" }),
+      h("circle", { cx: 44, cy: 31, r: 2.6, fill: stroke, stroke: "none" })
+    );
+    mouth = h("path", { d: "M25 46 Q34 41 43 46", ...common });
+  } else if (emotion === "anxious") {
+    brows = h(Fragment, null,
+      h("path", { d: "M18 25 Q24 18 30 23", ...common }),
+      h("path", { d: "M38 23 Q44 18 50 25", ...common })
+    );
+    eyes = h(Fragment, null,
+      h("circle", { cx: 24, cy: 31, r: 3.8, ...common }),
+      h("circle", { cx: 44, cy: 31, r: 3.8, ...common })
+    );
+    mouth = h("ellipse", { cx: 34, cy: 45, rx: 4.5, ry: 3.6, ...common });
+  } else {
+    brows = h(Fragment, null,
+      h("path", { d: "M18 24 Q24 19 30 22", ...common }),
+      h("path", { d: "M39 26 Q44 24 49 27", ...common })
+    );
+    eyes = h(Fragment, null,
+      h("path", { d: "M19 30 Q24 34 29 30", ...common }),
+      h("circle", { cx: 44, cy: 31, r: 2.6, fill: stroke, stroke: "none" })
+    );
+    mouth = h("path", { d: "M26 45 Q34 49 41 43", ...common });
+  }
+
+  return h(
+    "svg",
+    { width: s, height: s, viewBox: "0 0 68 68", role: "img", "aria-label": emotion },
+    h("circle", { cx: 34, cy: 34, r: 30, fill: COLORS.surface, stroke: COLORS.border, strokeWidth: 2 }),
+    h("circle", { cx: 34, cy: 34, r: 30, fill: COLORS.primary, opacity: 0.05 }),
+    cheeks,
+    brows,
+    eyes,
+    mouth
+  );
+}
+
+function PlayIcon() {
+  return h(
+    "svg",
+    { width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": "true" },
+    h("path", { d: "M4 2.5 L13 8 L4 13.5 Z", fill: "currentColor" })
+  );
+}
+
+function MicIcon({ color }) {
+  return h(
+    "svg",
+    { width: 32, height: 32, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
+    h("rect", { x: 9, y: 3, width: 6, height: 12, rx: 3, stroke: color, strokeWidth: 2 }),
+    h("path", { d: "M5 11a7 7 0 0 0 14 0", stroke: color, strokeWidth: 2, strokeLinecap: "round" }),
+    h("path", { d: "M12 18v3", stroke: color, strokeWidth: 2, strokeLinecap: "round" })
+  );
+}
+
+function ProgressDots({ total, current }) {
+  return h(
+    "div",
+    { style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 28 } },
+    Array.from({ length: total }).map((_, i) =>
+      h("div", {
+        key: i,
+        style: {
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          background: i <= current ? COLORS.primary : COLORS.border,
+          transition: "background 0.3s ease",
+        },
+      })
+    )
+  );
+}
+
+function PrimaryButton({ children, onClick, style, disabled }) {
+  return h(
+    "button",
+    {
+      onClick,
+      disabled,
+      style: {
+        width: "100%",
+        padding: "16px 24px",
+        borderRadius: 16,
+        border: "none",
+        background: disabled ? COLORS.border : COLORS.primary,
+        color: disabled ? COLORS.inkSoft : "#FFFFFF",
+        fontFamily: DISPLAY_FONT,
+        fontWeight: 700,
+        fontSize: 17,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "background 0.2s ease, transform 0.1s ease",
+        ...style,
+      },
+      onMouseDown: (e) => { if (!disabled) e.currentTarget.style.transform = "scale(0.98)"; },
+      onMouseUp: (e) => { e.currentTarget.style.transform = "scale(1)"; },
+    },
+    children
+  );
+}
+
+function TextButton({ children, onClick, style }) {
+  return h(
+    "button",
+    {
+      onClick,
+      style: {
+        background: "none",
+        border: "none",
+        color: COLORS.inkSoft,
+        fontFamily: BODY_FONT,
+        fontSize: 14,
+        textDecoration: "underline",
+        cursor: "pointer",
+        padding: 0,
+        ...style,
+      },
+    },
+    children
+  );
+}
+
+function App() {
+  const [screen, setScreen] = useState("welcome");
+  const [name, setName] = useState("");
+  const [codeword, setCodeword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  const [beatIndex, setBeatIndex] = useState(0);
+  const [step, setStep] = useState("narrate");
+  const [feedback, setFeedback] = useState("");
+  const [correctFlash, setCorrectFlash] = useState(false);
+
+  // --- Voice recording state ---
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState(null);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [recordError, setRecordError] = useState("");
+  const [uploadStatus, setUploadStatus] = useState("idle"); // idle | uploading | done | error
+
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+
+  const beat = STORY[beatIndex];
+  const isLastBeat = beatIndex === STORY.length - 1;
+
+  function handleLogin() {
+    if (!name.trim()) {
+      setLoginError("Enter a name to continue.");
+      return;
+    }
+    if (codeword.trim().toLowerCase() !== CODEWORD) {
+      setLoginError("That codeword doesn't match. Try again.");
+      return;
+    }
+    setLoginError("");
+    setScreen("voice");
+  }
+
+  function startStory() {
+    setBeatIndex(0);
+    setStep("narrate");
+    setFeedback("");
+    setScreen("story");
+  }
+
+  async function startRecording() {
+    setRecordError("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setRecordError("Recording isn't supported in this browser. Try uploading a file instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        setRecordedBlob(blob);
+        setRecordedUrl(URL.createObjectURL(blob));
+        streamRef.current && streamRef.current.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+      setRecordSeconds(0);
+      timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      setRecordError("Couldn't access the microphone. Check permissions, or upload a file instead.");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    clearInterval(timerRef.current);
+  }
+
+  function clearRecording() {
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setUploadStatus("idle");
+    setRecordError("");
+  }
+
+  function handleFileChosen(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setRecordedBlob(file);
+    setRecordedUrl(URL.createObjectURL(file));
+    setUploadStatus("idle");
+    setRecordError("");
+  }
+
+  async function uploadRecording() {
+    if (!recordedBlob) return;
+    if (!FIREBASE_CONFIGURED || !storageRef) {
+      // No Firebase project wired up yet — just proceed with local playback only.
+      setScreen("story");
+      return;
+    }
+    setUploadStatus("uploading");
+    try {
+      const ext = (recordedBlob.type && recordedBlob.type.split("/")[1]) || "webm";
+      const safeName = (name.trim() || "anon").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const path = `voice-intros/${safeName}-${Date.now()}.${ext}`;
+      await storageRef.child(path).put(recordedBlob);
+      setUploadStatus("done");
+      setScreen("story");
+    } catch (err) {
+      setUploadStatus("error");
+      setRecordError("Upload failed. You can still continue — the recording will just stay local to this session.");
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      clearInterval(timerRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  function handleEmotionPick(key) {
+    if (key === beat.emotion) {
+      setFeedback("");
+      setCorrectFlash(true);
+      setTimeout(() => {
+        setCorrectFlash(false);
+        setStep("face");
+      }, 700);
+    } else {
+      setFeedback("Not quite — try again.");
+    }
+  }
+
+  function handleFacePick(key) {
+    if (key === beat.emotion) {
+      setFeedback("");
+      setCorrectFlash(true);
+      setTimeout(() => {
+        setCorrectFlash(false);
+        if (isLastBeat) {
+          setScreen("end");
+        } else {
+          setBeatIndex((i) => i + 1);
+          setStep("narrate");
+        }
+      }, 700);
+    } else {
+      setFeedback("Not quite — try again.");
+    }
+  }
+
+  function playRecordedIntro() {
+    if (recordedUrl) {
+      const audio = new Audio(recordedUrl);
+      audio.play();
+    }
+  }
+
+  const shellStyle = {
+    minHeight: "100%",
+    background: COLORS.bg,
+    display: "flex",
+    justifyContent: "center",
+    padding: "40px 20px",
+    fontFamily: BODY_FONT,
+    color: COLORS.ink,
+    boxSizing: "border-box",
+  };
+
+  const cardStyle = { width: "100%", maxWidth: 420 };
+
+  const labelStyle = {
+    display: "block",
+    fontFamily: DISPLAY_FONT,
+    fontWeight: 700,
+    fontSize: 14,
+    marginBottom: 6,
+    color: COLORS.inkSoft,
+  };
+
+  const inputStyle = {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "14px 16px",
+    borderRadius: 12,
+    border: `2px solid ${COLORS.border}`,
+    fontSize: 16,
+    fontFamily: BODY_FONT,
+    marginBottom: 18,
+    outline: "none",
+  };
+
+  let screenContent = null;
+
+  if (screen === "welcome") {
+    screenContent = h(
+      "div",
+      null,
+      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 26, marginBottom: 8, color: COLORS.primaryDeep } }, "Let's get ready"),
+      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 32 } }, "This story is read in a voice you know. Enter your name and today's codeword to begin."),
+      h("label", { style: labelStyle }, "Your name"),
+      h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Sam", style: inputStyle }),
+      h("label", { style: labelStyle }, "Codeword"),
+      h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: { ...inputStyle, marginBottom: 6 } }),
+      h("p", { style: { fontSize: 13, color: COLORS.inkSoft, marginBottom: 24, fontStyle: "italic" } }, `Demo codeword: ${CODEWORD}`),
+      loginError && h("p", { style: { color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, loginError),
+      h(PrimaryButton, { onClick: handleLogin }, "Continue")
+    );
+  } else if (screen === "voice") {
+    const canUseRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    screenContent = h(
+      "div",
+      { style: { textAlign: "center", paddingTop: 24 } },
+      h(
+        "div",
+        {
+          style: {
+            width: 88, height: 88, borderRadius: "50%", background: COLORS.highlightBg,
+            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 28px",
+          },
+        },
+        h(MicIcon, { color: COLORS.primaryDeep })
+      ),
+      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24, marginBottom: 12, color: COLORS.primaryDeep } }, `Hi ${name || "there"}`),
+      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 24, padding: "0 8px" } },
+        "This story is told in Mum's voice. Record a short intro below, or upload a recording."
+      ),
+
+      // Recorder controls
+      !recordedUrl && h(
+        "div",
+        { style: { marginBottom: 20 } },
+        canUseRecorder && h(
+          PrimaryButton,
+          {
+            onClick: isRecording ? stopRecording : startRecording,
+            style: { background: isRecording ? COLORS.danger : COLORS.primary, marginBottom: 12 },
+          },
+          isRecording ? `Stop recording (${recordSeconds}s)` : "Record my voice"
+        ),
+        h(
+          "label",
+          {
+            htmlFor: "audio-file-input",
+            style: {
+              display: "inline-block", color: COLORS.primaryDeep, fontFamily: BODY_FONT,
+              fontSize: 14, textDecoration: "underline", cursor: "pointer",
+            },
+          },
+          canUseRecorder ? "Or choose an audio file instead" : "Choose an audio file"
+        ),
+        h("input", {
+          id: "audio-file-input", type: "file", accept: "audio/*", onChange: handleFileChosen,
+          style: { display: "none" },
+        })
+      ),
+
+      // Playback preview once we have something
+      recordedUrl && h(
+        "div",
+        { style: { marginBottom: 20 } },
+        h("audio", { controls: true, src: recordedUrl, style: { width: "100%", marginBottom: 10 } }),
+        h(TextButton, { onClick: clearRecording }, "Record again")
+      ),
+
+      recordError && h("p", { style: { color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, recordError),
+
+      !FIREBASE_CONFIGURED && recordedUrl && h(
+        "p", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 16, fontStyle: "italic" } },
+        "Firebase isn't configured yet, so this recording will only play back locally for now."
+      ),
+
+      h(PrimaryButton, {
+        onClick: recordedUrl ? uploadRecording : startStory,
+        disabled: uploadStatus === "uploading",
+      }, uploadStatus === "uploading" ? "Uploading…" : (recordedUrl ? "Continue" : "Skip for now"))
+    );
+  } else if (screen === "story") {
+    screenContent = h(
+      "div",
+      null,
+      h(ProgressDots, { total: STORY.length, current: beatIndex }),
+      h(
+        "div",
+        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, padding: 28 } },
+
+        step === "narrate" && h(
+          "div",
+          null,
+          h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
+          h(
+            "button",
+            {
+              onClick: playRecordedIntro,
+              disabled: !recordedUrl,
+              style: {
+                display: "inline-flex", alignItems: "center", gap: 8,
+                background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
+                borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
+                fontSize: 14, cursor: recordedUrl ? "pointer" : "not-allowed",
+                opacity: recordedUrl ? 1 : 0.5, marginBottom: 24,
+              },
+            },
+            h(PlayIcon, null),
+            "Hear it in Mum's voice"
+          ),
+          h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
+        ),
+
+        step === "identify" && h(
+          "div",
+          null,
+          h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "How does he feel right now?"),
+          h(
+            "div",
+            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
+            EMOTIONS.map((e) =>
+              h(
+                "button",
+                {
+                  key: e.key,
+                  onClick: () => handleEmotionPick(e.key),
+                  style: {
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                    padding: "16px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                    background: COLORS.highlightBg, cursor: "pointer", fontFamily: BODY_FONT,
+                    fontWeight: 700, fontSize: 14, color: COLORS.primaryDeep,
+                  },
+                },
+                h(Face, { emotion: e.key, size: 40 }),
+                e.label
+              )
+            )
+          ),
+          feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
+        ),
+
+        step === "face" && h(
+          "div",
+          null,
+          h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "Which face matches that feeling?"),
+          h(
+            "div",
+            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
+            EMOTIONS.map((e) =>
+              h(
+                "button",
+                {
+                  key: e.key,
+                  onClick: () => handleFacePick(e.key),
+                  "aria-label": e.label,
+                  style: {
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: "18px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                    background: COLORS.highlightBg, cursor: "pointer",
+                  },
+                },
+                h(Face, { emotion: e.key, size: 56 })
+              )
+            )
+          ),
+          feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
+        ),
+
+        correctFlash && h(
+          "div",
+          {
+            style: {
+              marginTop: 18, padding: "10px 14px", borderRadius: 12, background: COLORS.successBg,
+              color: COLORS.success, fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 14, textAlign: "center",
+            },
+          },
+          "That's it!"
+        )
+      )
+    );
+  } else if (screen === "end") {
+    screenContent = h(
+      "div",
+      { style: { textAlign: "center", paddingTop: 24 } },
+      h(
+        "div",
+        {
+          style: {
+            width: 88, height: 88, borderRadius: "50%", background: COLORS.successBg,
+            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 28px",
+          },
+        },
+        h(
+          "svg",
+          { width: 34, height: 34, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
+          h("path", { d: "M5 13l4 4 10-10", stroke: COLORS.success, strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" })
+        )
+      ),
+      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24, marginBottom: 12, color: COLORS.primaryDeep } }, `Well done, ${name || "there"}!`),
+      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 36, padding: "0 8px" } }, "You noticed how Sam was feeling through the whole morning."),
+      h(PrimaryButton, { onClick: () => setScreen("welcome") }, "Start again")
+    );
+  }
+
+  return h("div", { style: shellStyle }, h("div", { style: cardStyle }, screenContent));
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(h(App));
+</script>
+</body>
+</html>
