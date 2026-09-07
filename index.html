@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Emotions Story — Prototype</title>
+<!-- "Barthhold Block" (Berthold Block) isn't on Google Fonts / free CDNs — it's a
+     commercial typeface. Substituting Titan One, the closest free thick-stroke
+     block-display font, for the welcome screen's heading/button text (tested
+     against Baloo 2 800 first — Baloo 2 reads rounder/bubblier, Titan One
+     matches the reference's uniform blocky strokes much more closely). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Questrial&display=swap" rel="stylesheet">
 <style>
   html, body { margin: 0; padding: 0; background: #FFF8ED; }
   * { box-sizing: border-box; }
@@ -100,6 +108,11 @@ const Fragment = React.Fragment;
 const { useState, useRef, useEffect } = React;
 
 const DISPLAY_FONT = "'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+// Welcome-screen-only fonts, matching Sonal's splash design. Not applied
+// app-wide yet — the rest of the app keeps DISPLAY_FONT/BODY_FONT above
+// until the other screens get the same restyle.
+const WELCOME_DISPLAY_FONT = "'Titan One', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+const WELCOME_BODY_FONT = "'Questrial', 'Segoe UI', system-ui, -apple-system, sans-serif";
 const BODY_FONT = "'Segoe UI', system-ui, -apple-system, sans-serif";
 
 const COLORS = {
@@ -521,18 +534,78 @@ function App() {
   let screenContent = null;
 
   if (screen === "welcome") {
+    // Positions are percentages of the card's own height, matched to the
+    // band layout baked into images/opening-background.png (white 0-33%,
+    // yellow 34-52%, blue stripe 52-58%, coral 58-76%, white 76-100%).
+    // The card's aspect-ratio is locked to the image's actual proportions
+    // (1414x2000) so every element scales together at any screen size.
+    // Pills and inputs are deliberately positioned to straddle the seams
+    // between bands (like the reference mockup's layered/collaged look),
+    // not sit fully inside them. This stays robust across screen sizes
+    // because every offset here is a % of the same aspect-ratio-locked
+    // box the background image fills — pill, input, and seam all scale
+    // together by the same factor. The one soft spot: pill/input padding
+    // is fixed px, not %, so the overlap is a couple of points deeper on
+    // a narrow phone than on the 420px-max desktop card — imperceptible
+    // in practice, not worth clamp()/vw complexity for a prototype.
+    const welcomePillStyle = (bg) => ({
+      display: "block", width: "80%", boxSizing: "border-box", margin: "0 auto 22px",
+      background: bg, color: COLORS.ink, textAlign: "center",
+      fontFamily: WELCOME_BODY_FONT, fontSize: 20, fontWeight: 500,
+      padding: "8px 22px", borderRadius: 999,
+    });
+    const welcomeInputStyle = {
+      width: "100%", boxSizing: "border-box", padding: "16px 18px",
+      borderRadius: 999, border: "2px solid #2A2A2A", fontSize: 17,
+      fontFamily: WELCOME_BODY_FONT, outline: "none",
+    };
     screenContent = h(
       "div",
-      null,
-      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 26, marginBottom: 8, color: COLORS.primaryDeep } }, "Let's get ready"),
-      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 32 } }, "This story is read in a voice you know. Enter your name and today's codeword to begin."),
-      h("label", { style: labelStyle }, "Your name"),
-      h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Sam", style: inputStyle }),
-      h("label", { style: labelStyle }, "Codeword"),
-      h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: { ...inputStyle, marginBottom: 6 } }),
-      h("p", { style: { fontSize: 13, color: COLORS.inkSoft, marginBottom: 24, fontStyle: "italic" } }, `Demo codeword: ${CODEWORD}`),
-      loginError && h("p", { style: { color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, loginError),
-      h(PrimaryButton, { onClick: handleLogin }, "Continue")
+      {
+        style: {
+          position: "relative", width: "100%", aspectRatio: "1414 / 2000", overflow: "hidden",
+          backgroundImage: "url(images/opening-background.png)",
+          backgroundSize: "100% 100%", backgroundRepeat: "no-repeat",
+        },
+      },
+      h("h1", {
+        style: {
+          position: "absolute", top: "11%", left: "9%", right: "9%", textAlign: "center",
+          margin: 0, fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+          fontSize: "clamp(22px, 7.5vw, 32px)", lineHeight: 1.15, color: "#1A1A1A",
+        },
+      }, "Let's get ready!"),
+
+      h("div", { style: { position: "absolute", top: "26%", left: "9%", right: "9%" } },
+        h("span", { style: welcomePillStyle("#FFD166") }, "Your Name"),
+        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Sam", style: welcomeInputStyle })
+      ),
+
+      h("div", { style: { position: "absolute", top: "55%", left: "9%", right: "9%" } },
+        h("span", { style: welcomePillStyle("#FF7A59") }, "Codeword"),
+        h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: welcomeInputStyle })
+      ),
+
+      h(
+        "div",
+        { style: { position: "absolute", top: "79.5%", left: "9%", right: "9%", textAlign: "center" } },
+        h(
+          "button",
+          {
+            onClick: handleLogin,
+            style: {
+              width: "100%", padding: "18px 24px", borderRadius: 999, border: "none",
+              background: COLORS.primaryDeep, color: "#FFFFFF", fontFamily: WELCOME_DISPLAY_FONT,
+              fontWeight: 400, fontSize: 22, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer",
+            },
+          },
+          "Tap to Begin"
+        ),
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontSize: 12, color: COLORS.inkSoft, margin: "10px 0 0", fontStyle: "italic" } },
+          `Demo codeword: ${CODEWORD}`
+        ),
+        loginError && h("p", { style: { fontFamily: WELCOME_BODY_FONT, color: COLORS.danger, fontSize: 13, margin: "6px 0 0" } }, loginError)
+      )
     );
   } else if (screen === "voice") {
     const canUseRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
