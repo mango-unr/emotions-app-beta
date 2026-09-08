@@ -497,18 +497,47 @@ function App() {
     setMuted((m) => !m);
   }
 
+  // Diagonal stripe pattern sampled from opening-background.png's own
+  // outer margin (#7FCDFB / #69C4FA), used as the page background behind
+  // the welcome card so the space around it reads as intentional design
+  // instead of dead space — CSS-generated so it can fill any viewport
+  // shape/size without needing to match a fixed image ratio.
+  const WELCOME_STRIPE_BG =
+    "repeating-linear-gradient(135deg, #7FCDFB 0px, #7FCDFB 24px, #69C4FA 24px, #69C4FA 48px)";
+
   const shellStyle = {
-    minHeight: "100%",
-    background: COLORS.bg,
+    minHeight: "100vh",
+    background: screen === "welcome" ? WELCOME_STRIPE_BG : COLORS.bg,
     display: "flex",
     justifyContent: "center",
-    padding: "40px 20px",
+    alignItems: "center",
+    // Padding shrinks on narrow (phone-width) screens so the card has more
+    // room to grow into, and holds at a comfortable size once the screen is
+    // wide enough that the card's own max-width cap is the binding
+    // constraint anyway (see cardStyle below).
+    padding: "clamp(12px, 5vw, 40px) clamp(12px, 5vw, 24px)",
     fontFamily: BODY_FONT,
     color: COLORS.ink,
     boxSizing: "border-box",
   };
 
-  const cardStyle = { width: "100%", maxWidth: 420 };
+  // The card is sized to fit inside the viewport without ever exceeding it
+  // in either dimension — same technique as "object-fit: contain", applied
+  // to the whole card via CSS min(). Three candidate widths, smallest wins:
+  //  1. calc(100vw - 32px)            -> fill available width (phone-width screens)
+  //  2. calc((100vh - 64px) * 0.6856) -> the width that would exactly fill
+  //     available height at this card's locked ratio (1326:1934 = 0.6856,
+  //     see CARD image note below)
+  //  3. 420px                          -> hard cap once the screen is wide
+  //     enough that (1) and (2) both exceed it (desktop/tablet)
+  // Because the card's own aspect-ratio (set where the background image is
+  // applied) is locked to this same ratio, the resulting height is always
+  // exactly derived from this width — bands/inputs/button positions (all
+  // percentages of the card) never drift relative to each other at any
+  // size, they just scale together as one unit.
+  const cardStyle = {
+    width: "min(calc(100vw - 32px), calc((100vh - 64px) * 0.6856), 420px)",
+  };
 
   const labelStyle = {
     display: "block",
@@ -535,10 +564,17 @@ function App() {
 
   if (screen === "welcome") {
     // Positions are percentages of the card's own height, matched to the
-    // band layout baked into images/opening-background.png (white 0-33%,
-    // yellow 34-52%, blue stripe 52-58%, coral 58-76%, white 76-100%).
-    // The card's aspect-ratio is locked to the image's actual proportions
-    // (1414x2000) so every element scales together at any screen size.
+    // band layout baked into images/opening-background-card.png (a crop of
+    // opening-background.png down to just the bordered white card, with
+    // the outer decorative blue-striped margin removed — that margin is
+    // now rendered separately as WELCOME_STRIPE_BG on the page behind it,
+    // so it can fill any screen shape instead of being locked to the
+    // original image's exact proportions). Percentages below were
+    // recomputed for the new crop (seam positions shift slightly since the
+    // crop removes ~2-4% margin from each edge) — see the conversion notes
+    // in the session history if this image gets re-cropped later.
+    // The card's aspect-ratio is locked to the crop's actual proportions
+    // (1326x1934) so every element scales together at any screen size.
     // Pills and inputs are deliberately positioned to straddle the seams
     // between bands (like the reference mockup's layered/collaged look),
     // not sit fully inside them. This stays robust across screen sizes
@@ -563,32 +599,32 @@ function App() {
       "div",
       {
         style: {
-          position: "relative", width: "100%", aspectRatio: "1414 / 2000", overflow: "hidden",
-          backgroundImage: "url(images/opening-background.png)",
+          position: "relative", width: "100%", aspectRatio: "1326 / 1934", overflow: "hidden",
+          backgroundImage: "url(images/opening-background-card.png)",
           backgroundSize: "100% 100%", backgroundRepeat: "no-repeat",
         },
       },
       h("h1", {
         style: {
-          position: "absolute", top: "11%", left: "9%", right: "9%", textAlign: "center",
+          position: "absolute", top: "9.3%", left: "6.3%", right: "6.3%", textAlign: "center",
           margin: 0, fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
           fontSize: "clamp(22px, 7.5vw, 32px)", lineHeight: 1.15, color: "#1A1A1A",
         },
       }, "Let's get ready!"),
 
-      h("div", { style: { position: "absolute", top: "26%", left: "9%", right: "9%" } },
+      h("div", { style: { position: "absolute", top: "24.8%", left: "6.3%", right: "6.3%" } },
         h("span", { style: welcomePillStyle("#FFD166") }, "Your Name"),
-        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Sam", style: welcomeInputStyle })
+        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Enter your name", style: welcomeInputStyle })
       ),
 
-      h("div", { style: { position: "absolute", top: "55%", left: "9%", right: "9%" } },
+      h("div", { style: { position: "absolute", top: "54.8%", left: "6.3%", right: "6.3%" } },
         h("span", { style: welcomePillStyle("#FF7A59") }, "Codeword"),
         h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: welcomeInputStyle })
       ),
 
       h(
         "div",
-        { style: { position: "absolute", top: "79.5%", left: "9%", right: "9%", textAlign: "center" } },
+        { style: { position: "absolute", top: "80.1%", left: "6.3%", right: "6.3%", textAlign: "center" } },
         h(
           "button",
           {
