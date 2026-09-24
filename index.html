@@ -129,6 +129,11 @@ const COLORS = {
   danger: "#D9534F",
 };
 
+// Recording-screen accent colors, sampled from Sonal's reference art
+// (record-mic-branch.png / the Record N of 4 mockups).
+const RECORD_ORANGE = "#FF7A59";
+const RECORD_LEAF_COLOR = "#378E80";
+
 // Matches the 4 emotion labels baked into the Emotion-Slide filenames
 // (Exhaustion/Joy/Overwhelm/Relief) rather than an invented set — see
 // the STORY block above. Slides 5/6 (Anxiety/Excitement) aren't wired in
@@ -222,13 +227,43 @@ function PlayIcon() {
   );
 }
 
-function MicIcon({ color }) {
+// Leaf shape: a symmetric pointed-oval (two quadratic curves meeting at a
+// top and bottom point), tilted alternately left/right per leaf via
+// rotation — reads as the same "row of leaves" motif as Sonal's art
+// without depending on getting an asymmetric arc direction exactly right.
+function leafPathD(size) {
+  return `M ${size / 2} 0 Q ${size} ${size / 2} ${size / 2} ${size} Q 0 ${size / 2} ${size / 2} 0 Z`;
+}
+
+// Progress indicator for the per-beat recording flow: filledCount leaves
+// are solid, the rest are outline-only — driven directly by recordBeatIndex,
+// no separate state to keep in sync.
+function LeafRow({ filledCount, total, style }) {
+  const size = 30;
+  const spacing = 24;
+  const pad = 14;
+  const width = spacing * (total - 1) + size + pad * 2;
+  const height = size + 16;
+  const baseY = height - size / 2 - 2;
   return h(
     "svg",
-    { width: 32, height: 32, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
-    h("rect", { x: 9, y: 3, width: 6, height: 12, rx: 3, stroke: color, strokeWidth: 2 }),
-    h("path", { d: "M5 11a7 7 0 0 0 14 0", stroke: color, strokeWidth: 2, strokeLinecap: "round" }),
-    h("path", { d: "M12 18v3", stroke: color, strokeWidth: 2, strokeLinecap: "round" })
+    {
+      viewBox: `0 0 ${width} ${height}`,
+      style: { width: 160, height: "auto", display: "block", margin: "0 auto", ...style },
+    },
+    Array.from({ length: total }).map((_, i) => {
+      const cx = pad + size / 2 + i * spacing;
+      const angle = i % 2 === 0 ? -32 : 32;
+      return h("path", {
+        key: i,
+        d: leafPathD(size),
+        transform: `translate(${cx - size / 2}, ${baseY - size / 2}) rotate(${angle} ${size / 2} ${size / 2})`,
+        fill: i < filledCount ? RECORD_LEAF_COLOR : "none",
+        stroke: RECORD_LEAF_COLOR,
+        strokeWidth: 2.5,
+        strokeLinejoin: "round",
+      });
+    })
   );
 }
 
@@ -321,6 +356,13 @@ function App() {
 
   // --- Story playback ---
   const [muted, setMuted] = useState(false);
+
+  // Tracks actual device orientation (not a user choice) so the story
+  // screen can lay out sensibly in landscape without ever asking anyone
+  // to rotate — reacts to real rotation via matchMedia, no polling.
+  const [isLandscape, setIsLandscape] = useState(
+    () => window.matchMedia("(orientation: landscape)").matches
+  );
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -448,6 +490,13 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const mql = window.matchMedia("(orientation: landscape)");
+    const handler = (e) => setIsLandscape(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
     if (audioRef.current) audioRef.current.muted = muted;
   }, [muted]);
 
@@ -507,7 +556,7 @@ function App() {
 
   const shellStyle = {
     minHeight: "100vh",
-    background: screen === "welcome" ? WELCOME_STRIPE_BG : COLORS.bg,
+    background: (screen === "welcome" || screen === "voice") ? WELCOME_STRIPE_BG : COLORS.bg,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
@@ -535,9 +584,13 @@ function App() {
   // exactly derived from this width — bands/inputs/button positions (all
   // percentages of the card) never drift relative to each other at any
   // size, they just scale together as one unit.
-  const cardStyle = {
-    width: "min(calc(100vw - 32px), calc((100vh - 64px) * 0.6856), 420px)",
-  };
+  // On the story screen specifically, landscape gets a wider cap (760px vs
+  // 420px) so the side-by-side narrate layout below has room to use the
+  // extra width instead of staying phone-portrait-narrow — every other
+  // screen/orientation combination keeps the original contain-fit sizing.
+  const cardStyle = (screen === "story" && isLandscape)
+    ? { width: "min(calc(100vw - 32px), 760px)" }
+    : { width: "min(calc(100vw - 32px), calc((100vh - 64px) * 0.6856), 420px)" };
 
   const labelStyle = {
     display: "block",
@@ -644,30 +697,52 @@ function App() {
       )
     );
   } else if (screen === "voice") {
+    // Restyled to match Sonal's per-beat recording redesign: mic+branch is
+    // a real image (images/record-mic-branch.png, cropped from her art
+    // with the leaf outlines removed), the 4 leaves are drawn fresh by
+    // LeafRow above so their fill state can track recordBeatIndex directly
+    // — no separate progress state to keep in sync. Recording logic below
+    // (canUseRecorder, startRecording/stopRecording, handleFileChosen,
+    // recordedUrl preview, recordError, saveClipAndAdvance) is untouched.
     const canUseRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     const recordBeat = STORY[recordBeatIndex];
     screenContent = h(
       "div",
-      { style: { textAlign: "center", paddingTop: 24 } },
+      {
+        style: {
+          background: COLORS.surface, border: "3px solid #000000", borderRadius: 24,
+          padding: "30px 22px 26px", textAlign: "center",
+        },
+      },
+      h("img", {
+        src: "images/record-mic-branch.png", alt: "",
+        style: { width: "36%", minWidth: 90, display: "block", margin: "0 auto" },
+      }),
+      h(LeafRow, {
+        filledCount: recordBeatIndex + 1, total: STORY.length,
+        style: { marginTop: -16, marginBottom: 8 },
+      }),
+      h(
+        "h1",
+        {
+          style: {
+            fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+            fontSize: "clamp(18px, 5.5vw, 24px)", color: RECORD_ORANGE, margin: "0 0 24px",
+          },
+        },
+        `Record clip ${recordBeatIndex + 1} of ${STORY.length}`
+      ),
+
       h(
         "div",
         {
           style: {
-            width: 72, height: 72, borderRadius: "50%", background: COLORS.highlightBg,
-            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px",
+            background: "#F6BC2D", textAlign: "left", padding: "26px 20px", marginBottom: 22,
+            clipPath: "polygon(0% 8%, 15% 2%, 30% 6%, 50% 0%, 70% 5%, 85% 1%, 100% 6%, 100% 92%, 85% 98%, 70% 94%, 50% 100%, 30% 95%, 15% 99%, 0% 94%)",
           },
         },
-        h(MicIcon, { color: COLORS.primaryDeep })
-      ),
-      h(ProgressDots, { total: STORY.length, current: recordBeatIndex }),
-      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 22, marginBottom: 12, color: COLORS.primaryDeep } },
-        `Record clip ${recordBeatIndex + 1} of ${STORY.length}`
-      ),
-      h(
-        "div",
-        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 16, padding: 18, marginBottom: 20, textAlign: "left" } },
-        h("p", { style: { fontSize: 13, fontFamily: DISPLAY_FONT, fontWeight: 700, color: COLORS.inkSoft, marginBottom: 6 } }, "Read this bit aloud:"),
-        h("p", { style: { fontSize: 15, lineHeight: 1.6, margin: 0 } }, recordBeat.text)
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontWeight: 700, fontSize: 15, color: "#1A1A1A", margin: "0 0 10px" } }, "Read this bit aloud:"),
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontSize: 16, lineHeight: 1.6, color: "#1A1A1A", margin: 0 } }, recordBeat.text)
       ),
 
       // Recorder controls
@@ -675,10 +750,15 @@ function App() {
         "div",
         { style: { marginBottom: 20 } },
         canUseRecorder && h(
-          PrimaryButton,
+          "button",
           {
             onClick: isRecording ? stopRecording : startRecording,
-            style: { background: isRecording ? COLORS.danger : COLORS.primary, marginBottom: 12 },
+            style: {
+              width: "100%", padding: "16px 24px", borderRadius: 999, border: "none",
+              background: isRecording ? COLORS.danger : "#7FCDFB", color: "#1A1A1A",
+              fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 18, letterSpacing: 0.5,
+              textTransform: "uppercase", cursor: "pointer", marginBottom: 14,
+            },
           },
           isRecording ? `Stop recording (${recordSeconds}s)` : "Record my voice"
         ),
@@ -687,7 +767,7 @@ function App() {
           {
             htmlFor: "audio-file-input",
             style: {
-              display: "inline-block", color: COLORS.primaryDeep, fontFamily: BODY_FONT,
+              display: "inline-block", color: COLORS.primaryDeep, fontFamily: WELCOME_BODY_FONT,
               fontSize: 14, textDecoration: "underline", cursor: "pointer",
             },
           },
@@ -707,9 +787,19 @@ function App() {
         h(TextButton, { onClick: clearRecording }, "Record again")
       ),
 
-      recordError && h("p", { style: { color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, recordError),
+      recordError && h("p", { style: { fontFamily: WELCOME_BODY_FONT, color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, recordError),
 
-      h(PrimaryButton, { onClick: saveClipAndAdvance },
+      h(
+        "button",
+        {
+          onClick: saveClipAndAdvance,
+          style: {
+            width: "100%", padding: "14px 24px", borderRadius: 999, border: "none",
+            background: COLORS.highlightBg, color: COLORS.primaryDeep,
+            fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 16, letterSpacing: 0.5,
+            textTransform: "uppercase", cursor: "pointer",
+          },
+        },
         recordedUrl
           ? (recordBeatIndex === STORY.length - 1 ? "Continue" : "Save & continue")
           : (recordBeatIndex === STORY.length - 1 ? "Skip for now" : "Skip & continue")
@@ -729,112 +819,165 @@ function App() {
       ),
       h(
         "div",
-        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, padding: 28, marginTop: 24 } },
+        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, marginTop: 24, overflow: "hidden" } },
 
-        step === "narrate" && h(
-          "div",
-          null,
-          beat.image
+        // Narrate step has two layouts, chosen by actual device orientation
+        // (isLandscape), never by user choice:
+        //  - portrait: image is full-bleed (fills the card's own width,
+        //    flush with its rounded top corners — no side padding eating
+        //    into it) with the story text overlaid book-page style, same
+        //    as before but noticeably bigger since it isn't inset by the
+        //    card's 28px padding anymore.
+        //  - landscape: side-by-side — image fills the left half at full
+        //    row height, plain (non-overlaid) text plus the two buttons
+        //    sit in a padded panel on the right, taking advantage of the
+        //    extra width instead of leaving it as side margin.
+        step === "narrate" && (
+          isLandscape
             ? h(
                 "div",
-                { style: { position: "relative", borderRadius: 14, overflow: "hidden", marginBottom: 24, aspectRatio: "1408 / 768" } },
-                h("img", { src: beat.image, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }),
+                { style: { display: "flex", alignItems: "stretch", minHeight: 320 } },
+                beat.image && h("img", {
+                  src: beat.image, alt: "",
+                  style: { width: "48%", flexShrink: 0, height: "100%", objectFit: "cover" },
+                }),
                 h(
                   "div",
-                  {
-                    style: {
-                      position: "absolute", left: 0, right: 0, bottom: 0,
-                      background: "linear-gradient(to top, rgba(20,15,10,0.85) 0%, rgba(20,15,10,0.6) 60%, rgba(20,15,10,0) 100%)",
-                      padding: "36px 16px 16px",
+                  { style: { flex: 1, padding: 28, display: "flex", flexDirection: "column", justifyContent: "center" } },
+                  h("p", { style: { fontSize: 17, lineHeight: 1.6, marginBottom: 20 } }, beat.text),
+                  h(
+                    "button",
+                    {
+                      onClick: () => playBeatAudio(beatIndex),
+                      disabled: !hasClip,
+                      style: {
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
+                        borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
+                        fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
+                        opacity: hasClip ? 1 : 0.5, marginBottom: 20, alignSelf: "flex-start",
+                      },
                     },
-                  },
-                  h("p", { style: { fontSize: 16, lineHeight: 1.6, margin: 0, color: "#FFFFFF", textShadow: "0 1px 4px rgba(0,0,0,0.6)" } }, beat.text)
+                    h(PlayIcon, null),
+                    "Hear it in Mum's voice"
+                  ),
+                  h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
                 )
               )
-            : h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
-          h(
-            "button",
+            : h(
+                "div",
+                null,
+                beat.image
+                  ? h(
+                      "div",
+                      { style: { position: "relative", aspectRatio: "1408 / 768" } },
+                      h("img", { src: beat.image, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }),
+                      h(
+                        "div",
+                        {
+                          style: {
+                            position: "absolute", left: 0, right: 0, bottom: 0,
+                            background: "linear-gradient(to top, rgba(20,15,10,0.85) 0%, rgba(20,15,10,0.6) 60%, rgba(20,15,10,0) 100%)",
+                            padding: "36px 16px 16px",
+                          },
+                        },
+                        h("p", { style: { fontSize: 16, lineHeight: 1.6, margin: 0, color: "#FFFFFF", textShadow: "0 1px 4px rgba(0,0,0,0.6)" } }, beat.text)
+                      )
+                    )
+                  : h("p", { style: { fontSize: 18, lineHeight: 1.7, margin: "28px 28px 0" } }, beat.text),
+                h(
+                  "div",
+                  { style: { padding: "24px 28px 28px" } },
+                  h(
+                    "button",
+                    {
+                      onClick: () => playBeatAudio(beatIndex),
+                      disabled: !hasClip,
+                      style: {
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
+                        borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
+                        fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
+                        opacity: hasClip ? 1 : 0.5, marginBottom: 24,
+                      },
+                    },
+                    h(PlayIcon, null),
+                    "Hear it in Mum's voice"
+                  ),
+                  h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
+                )
+              )
+        ),
+
+        (step === "identify" || step === "face") && h(
+          "div",
+          { style: { padding: 28 } },
+
+          step === "identify" && h(
+            "div",
+            null,
+            h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "How does he feel right now?"),
+            h(
+              "div",
+              { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
+              EMOTIONS.map((e) =>
+                h(
+                  "button",
+                  {
+                    key: e.key,
+                    onClick: () => handleEmotionPick(e.key),
+                    style: {
+                      padding: "22px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                      background: COLORS.highlightBg, cursor: "pointer", fontFamily: BODY_FONT,
+                      fontWeight: 700, fontSize: 16, color: COLORS.primaryDeep,
+                    },
+                  },
+                  e.label
+                )
+              )
+            ),
+            feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
+          ),
+
+          step === "face" && h(
+            "div",
+            null,
+            h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "Which face matches that feeling?"),
+            h(
+              "div",
+              { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
+              EMOTIONS.map((e) =>
+                h(
+                  "button",
+                  {
+                    key: e.key,
+                    onClick: () => handleFacePick(e.key),
+                    "aria-label": e.label,
+                    style: {
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      padding: 4, borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                      background: COLORS.highlightBg, cursor: "pointer", overflow: "hidden",
+                    },
+                  },
+                  e.image
+                    ? h("img", { src: e.image, alt: "", style: { width: "100%", aspectRatio: "1.08", objectFit: "cover", borderRadius: 10 } })
+                    : h(Face, { emotion: e.key, size: 56 })
+                )
+              )
+            ),
+            feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
+          ),
+
+          correctFlash && h(
+            "div",
             {
-              onClick: () => playBeatAudio(beatIndex),
-              disabled: !hasClip,
               style: {
-                display: "inline-flex", alignItems: "center", gap: 8,
-                background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
-                borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
-                fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
-                opacity: hasClip ? 1 : 0.5, marginBottom: 24,
+                marginTop: 18, padding: "10px 14px", borderRadius: 12, background: COLORS.successBg,
+                color: COLORS.success, fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 14, textAlign: "center",
               },
             },
-            h(PlayIcon, null),
-            "Hear it in Mum's voice"
-          ),
-          h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
-        ),
-
-        step === "identify" && h(
-          "div",
-          null,
-          h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "How does he feel right now?"),
-          h(
-            "div",
-            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
-            EMOTIONS.map((e) =>
-              h(
-                "button",
-                {
-                  key: e.key,
-                  onClick: () => handleEmotionPick(e.key),
-                  style: {
-                    padding: "22px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
-                    background: COLORS.highlightBg, cursor: "pointer", fontFamily: BODY_FONT,
-                    fontWeight: 700, fontSize: 16, color: COLORS.primaryDeep,
-                  },
-                },
-                e.label
-              )
-            )
-          ),
-          feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
-        ),
-
-        step === "face" && h(
-          "div",
-          null,
-          h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "Which face matches that feeling?"),
-          h(
-            "div",
-            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
-            EMOTIONS.map((e) =>
-              h(
-                "button",
-                {
-                  key: e.key,
-                  onClick: () => handleFacePick(e.key),
-                  "aria-label": e.label,
-                  style: {
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    padding: 4, borderRadius: 14, border: `2px solid ${COLORS.border}`,
-                    background: COLORS.highlightBg, cursor: "pointer", overflow: "hidden",
-                  },
-                },
-                e.image
-                  ? h("img", { src: e.image, alt: "", style: { width: "100%", aspectRatio: "1.08", objectFit: "cover", borderRadius: 10 } })
-                  : h(Face, { emotion: e.key, size: 56 })
-              )
-            )
-          ),
-          feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
-        ),
-
-        correctFlash && h(
-          "div",
-          {
-            style: {
-              marginTop: 18, padding: "10px 14px", borderRadius: 12, background: COLORS.successBg,
-              color: COLORS.success, fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 14, textAlign: "center",
-            },
-          },
-          "That's it!"
+            "That's it!"
+          )
         )
       )
     );
