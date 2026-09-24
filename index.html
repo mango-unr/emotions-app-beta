@@ -600,7 +600,7 @@ function App() {
       {
         style: {
           position: "relative", width: "100%", aspectRatio: "1326 / 1934", overflow: "hidden",
-          backgroundImage: "url(images/opening-background-card.png)",
+          backgroundImage: "url(images/opening-background-v2-card.png)",
           backgroundSize: "100% 100%", backgroundRepeat: "no-repeat",
         },
       },
@@ -613,12 +613,12 @@ function App() {
       }, "Let's get ready!"),
 
       h("div", { style: { position: "absolute", top: "24.8%", left: "6.3%", right: "6.3%" } },
-        h("span", { style: welcomePillStyle("#FFD166") }, "Your Name"),
+        h("span", { style: welcomePillStyle("#F6BC2D") }, "Your Name"),
         h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Enter your name", style: welcomeInputStyle })
       ),
 
-      h("div", { style: { position: "absolute", top: "54.8%", left: "6.3%", right: "6.3%" } },
-        h("span", { style: welcomePillStyle("#FF7A59") }, "Codeword"),
+      h("div", { style: { position: "absolute", top: "51.3%", left: "6.3%", right: "6.3%" } },
+        h("span", { style: welcomePillStyle("#F6BC2D") }, "Codeword"),
         h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: welcomeInputStyle })
       ),
 
@@ -631,11 +631,11 @@ function App() {
             onClick: handleLogin,
             style: {
               width: "100%", padding: "18px 24px", borderRadius: 999, border: "none",
-              background: COLORS.primaryDeep, color: "#FFFFFF", fontFamily: WELCOME_DISPLAY_FONT,
+              background: "#7FCDFB", color: "#1A1A1A", fontFamily: WELCOME_DISPLAY_FONT,
               fontWeight: 400, fontSize: 22, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer",
             },
           },
-          "Tap to Begin"
+          "Begin"
         ),
         h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontSize: 12, color: COLORS.inkSoft, margin: "10px 0 0", fontStyle: "italic" } },
           `Demo codeword: ${CODEWORD}`
