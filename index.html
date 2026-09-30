@@ -312,6 +312,48 @@ function PrimaryButton({ children, onClick, style, disabled }) {
   );
 }
 
+// Shared shape for the plain static "message" screens between flow steps
+// (parent-facing intro, child-facing handoff) — bold-bordered white card,
+// heading, a few paragraphs, one Continue button. Matches the voice/story
+// screens' card treatment and the welcome/recording screens' button style.
+function MessageScreen({ heading, paragraphs, buttonLabel, onContinue }) {
+  return h(
+    "div",
+    { style: { background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, padding: "34px 26px 28px" } },
+    h(
+      "h1",
+      {
+        style: {
+          fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+          fontSize: "clamp(20px, 6vw, 26px)", color: "#1A1A1A", textAlign: "center", margin: "0 0 22px",
+        },
+      },
+      heading
+    ),
+    paragraphs.map((text, i) =>
+      h("p", {
+        key: i,
+        style: {
+          fontFamily: WELCOME_BODY_FONT, fontSize: 16, lineHeight: 1.6, color: COLORS.ink,
+          margin: i === paragraphs.length - 1 ? "0 0 28px" : "0 0 16px",
+        },
+      }, text)
+    ),
+    h(
+      "button",
+      {
+        onClick: onContinue,
+        style: {
+          width: "100%", padding: "16px 24px", borderRadius: 999, border: "none",
+          background: "#7FCDFB", color: "#1A1A1A", fontFamily: WELCOME_DISPLAY_FONT,
+          fontWeight: 400, fontSize: 18, letterSpacing: 0.5, textTransform: "uppercase", cursor: "pointer",
+        },
+      },
+      buttonLabel || "Continue"
+    )
+  );
+}
+
 function TextButton({ children, onClick, style }) {
   return h(
     "button",
@@ -382,7 +424,7 @@ function App() {
       return;
     }
     setLoginError("");
-    setScreen("voice");
+    setScreen("intro");
   }
 
   function startStory() {
@@ -459,7 +501,7 @@ function App() {
     setRecordedUrl(null);
     setRecordError("");
     if (isLastRecordStep) {
-      startStory();
+      setScreen("handoff");
     } else {
       setRecordBeatIndex((i) => i + 1);
     }
@@ -695,6 +737,35 @@ function App() {
         loginError && h("p", { style: { fontFamily: WELCOME_BODY_FONT, color: COLORS.danger, fontSize: 13, margin: "6px 0 0" } }, loginError)
       )
     );
+  } else if (screen === "intro") {
+    // Parent-facing "what this is" message, between login and the
+    // recording setup. No image of its own — the login screen's band
+    // artwork is specific to its name/codeword inputs and wouldn't fit
+    // plain paragraphs, so this reuses the same plain white card
+    // treatment as the voice/story screens instead.
+    screenContent = h(MessageScreen, {
+      heading: "A story to share together",
+      paragraphs: [
+        "This is a short story about Max's morning, told in your own voice.",
+        "You'll record a few short clips as you go, then your child can settle in and enjoy the story — spotting how Max feels along the way.",
+        "Let's get your voice recorded first.",
+      ],
+      onContinue: () => setScreen("voice"),
+    });
+  } else if (screen === "handoff") {
+    // Child-facing handoff, after all 4 clips are recorded and before the
+    // story itself starts — cues the parent to pass the device/attention
+    // over. Same MessageScreen shape as the "intro" screen above.
+    screenContent = h(MessageScreen, {
+      heading: "Your turn now!",
+      paragraphs: [
+        "Get comfy — Max's story is about to begin, in a voice you know.",
+        "Watch out for how Max is feeling. You'll get to pick the right feeling, and match it to a face.",
+        "If you're not sure, that's okay — you can always try again.",
+        "Ready? Press play!",
+      ],
+      onContinue: startStory,
+    });
   } else if (screen === "voice") {
     // Restyled to match Sonal's per-beat recording redesign: mic+branch is
     // a real image (images/record-mic-branch.png, cropped from her art
