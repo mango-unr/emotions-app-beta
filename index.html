@@ -867,27 +867,14 @@ function App() {
             : h(
                 "div",
                 null,
-                beat.image
-                  ? h(
-                      "div",
-                      { style: { position: "relative", aspectRatio: "1408 / 768" } },
-                      h("img", { src: beat.image, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }),
-                      h(
-                        "div",
-                        {
-                          style: {
-                            position: "absolute", left: 0, right: 0, bottom: 0,
-                            background: "linear-gradient(to top, rgba(20,15,10,0.85) 0%, rgba(20,15,10,0.6) 60%, rgba(20,15,10,0) 100%)",
-                            padding: "36px 16px 16px",
-                          },
-                        },
-                        h("p", { style: { fontSize: 16, lineHeight: 1.6, margin: 0, color: "#FFFFFF", textShadow: "0 1px 4px rgba(0,0,0,0.6)" } }, beat.text)
-                      )
-                    )
-                  : h("p", { style: { fontSize: 18, lineHeight: 1.7, margin: "28px 28px 0" } }, beat.text),
+                beat.image && h("img", {
+                  src: beat.image, alt: "",
+                  style: { display: "block", width: "100%", aspectRatio: "1408 / 768", objectFit: "cover" },
+                }),
                 h(
                   "div",
                   { style: { padding: "24px 28px 28px" } },
+                  h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
                   h(
                     "button",
                     {
