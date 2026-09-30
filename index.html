@@ -133,6 +133,13 @@ const COLORS = {
 const RECORD_ORANGE = "#FF7A59";
 const RECORD_LEAF_COLOR = "#378E80";
 
+// Shared minimum height for the portrait content cards (intro, handoff,
+// recording) so they read as the same size moving through the flow,
+// instead of each one shrink-wrapping to its own content length. Sized to
+// the tallest recording beat's card (beat 4's text is the longest) so
+// nothing has to shrink to fit it — shorter screens pad up to match.
+const CARD_MIN_HEIGHT = 610;
+
 // Matches the 4 emotion labels baked into the Emotion-Slide filenames
 // (Exhaustion/Joy/Overwhelm/Relief) rather than an invented set — see
 // the STORY block above. Slides 5/6 (Anxiety/Excitement) aren't wired in
@@ -319,7 +326,12 @@ function PrimaryButton({ children, onClick, style, disabled }) {
 function MessageScreen({ heading, paragraphs, buttonLabel, onContinue }) {
   return h(
     "div",
-    { style: { background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, padding: "34px 26px 28px" } },
+    {
+      style: {
+        background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, padding: "34px 26px 28px",
+        minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box", display: "flex", flexDirection: "column",
+      },
+    },
     h(
       "h1",
       {
@@ -347,6 +359,7 @@ function MessageScreen({ heading, paragraphs, buttonLabel, onContinue }) {
           width: "100%", padding: "16px 24px", borderRadius: 999, border: "none",
           background: "#7FCDFB", color: "#1A1A1A", fontFamily: WELCOME_DISPLAY_FONT,
           fontWeight: 400, fontSize: 18, letterSpacing: 0.5, textTransform: "uppercase", cursor: "pointer",
+          marginTop: "auto",
         },
       },
       buttonLabel || "Continue"
@@ -611,27 +624,21 @@ function App() {
     boxSizing: "border-box",
   };
 
-  // The card is sized to fit inside the viewport without ever exceeding it
-  // in either dimension — same technique as "object-fit: contain", applied
-  // to the whole card via CSS min(). Three candidate widths, smallest wins:
-  //  1. calc(100vw - 32px)            -> fill available width (phone-width screens)
-  //  2. calc((100vh - 64px) * 0.6856) -> the width that would exactly fill
-  //     available height at this card's locked ratio (1326:1934 = 0.6856,
-  //     see CARD image note below)
-  //  3. 420px                          -> hard cap once the screen is wide
-  //     enough that (1) and (2) both exceed it (desktop/tablet)
-  // Because the card's own aspect-ratio (set where the background image is
-  // applied) is locked to this same ratio, the resulting height is always
-  // exactly derived from this width — bands/inputs/button positions (all
-  // percentages of the card) never drift relative to each other at any
-  // size, they just scale together as one unit.
-  // On the story screen specifically, landscape gets a wider cap (760px vs
-  // 420px) so the side-by-side narrate layout below has room to use the
-  // extra width instead of staying phone-portrait-narrow — every other
-  // screen/orientation combination keeps the original contain-fit sizing.
+  // One card width for every screen in portrait: fill available width up
+  // to a 420px cap, same side margins everywhere. This used to also factor
+  // in 100vh (to let the welcome screen's card fill more of a tall phone's
+  // height) — dropped that, because 100vh isn't stable across screens on
+  // mobile browsers: it shifts as the address bar shows/hides, which
+  // differs per screen depending on content height/scroll, so two screens
+  // with byte-identical CSS could still resolve to different widths. Pure
+  // vw + a fixed cap can't drift like that.
+  // The one intentional exception: the story screen in landscape widens to
+  // 760px so the side-by-side narrate layout has room to use the extra
+  // width — everything else, including the story screen in portrait, uses
+  // the same capped-vw sizing.
   const cardStyle = (screen === "story" && isLandscape)
     ? { width: "min(calc(100vw - 32px), 760px)" }
-    : { width: "min(calc(100vw - 32px), calc((100vh - 64px) * 0.6856), 420px)" };
+    : { width: "min(calc(100vw - 32px), 420px)" };
 
   const labelStyle = {
     display: "block",
@@ -640,18 +647,6 @@ function App() {
     fontSize: 14,
     marginBottom: 6,
     color: COLORS.inkSoft,
-  };
-
-  const inputStyle = {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: "14px 16px",
-    borderRadius: 12,
-    border: `2px solid ${COLORS.border}`,
-    fontSize: 16,
-    fontFamily: BODY_FONT,
-    marginBottom: 18,
-    outline: "none",
   };
 
   let screenContent = null;
@@ -782,6 +777,7 @@ function App() {
         style: {
           background: COLORS.surface, border: "3px solid #000000", borderRadius: 24,
           padding: "30px 22px 26px", textAlign: "center",
+          minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box", display: "flex", flexDirection: "column",
         },
       },
       h("img", {
@@ -867,7 +863,7 @@ function App() {
             width: "100%", padding: "14px 24px", borderRadius: 999, border: "none",
             background: COLORS.highlightBg, color: COLORS.primaryDeep,
             fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 16, letterSpacing: 0.5,
-            textTransform: "uppercase", cursor: "pointer",
+            textTransform: "uppercase", cursor: "pointer", marginTop: "auto",
           },
         },
         recordedUrl
@@ -889,7 +885,17 @@ function App() {
       ),
       h(
         "div",
-        { style: { background: COLORS.surface, border: `2px solid ${COLORS.border}`, borderRadius: 20, marginTop: 24, overflow: "hidden" } },
+        {
+          style: {
+            background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, marginTop: 24, overflow: "hidden",
+            display: "flex", flexDirection: "column",
+            // Landscape gets its own width treatment (760px) specifically to
+            // use extra horizontal space — forcing the same vertical
+            // min-height there would fight that (landscape viewports are
+            // short) and force needless scrolling, so it's excluded.
+            ...(isLandscape ? {} : { minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box" }),
+          },
+        },
 
         // Narrate step has two layouts, chosen by actual device orientation
         // (isLandscape), never by user choice:
@@ -936,14 +942,14 @@ function App() {
               )
             : h(
                 "div",
-                null,
+                { style: { flex: 1, display: "flex", flexDirection: "column" } },
                 beat.image && h("img", {
                   src: beat.image, alt: "",
                   style: { display: "block", width: "100%", aspectRatio: "1408 / 768", objectFit: "cover" },
                 }),
                 h(
                   "div",
-                  { style: { padding: "24px 28px 28px" } },
+                  { style: { flex: 1, display: "flex", flexDirection: "column", padding: "24px 28px 28px" } },
                   h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
                   h(
                     "button",
@@ -955,7 +961,7 @@ function App() {
                         background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
                         borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
                         fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
-                        opacity: hasClip ? 1 : 0.5, marginBottom: 24,
+                        opacity: hasClip ? 1 : 0.5, marginBottom: 24, marginTop: "auto",
                       },
                     },
                     h(PlayIcon, null),
@@ -968,7 +974,11 @@ function App() {
 
         (step === "identify" || step === "face") && h(
           "div",
-          { style: { padding: 28 } },
+          // No button to anchor to the bottom here (picking a tile *is* the
+          // action), so the extra height from the shared card min-height
+          // gets distributed by centering the question+grid instead of
+          // leaving it pinned to the top with dead space below.
+          { style: { padding: 28, flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" } },
 
           step === "identify" && h(
             "div",
