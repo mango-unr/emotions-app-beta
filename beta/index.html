@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Emotions Story — Prototype</title>
+<!-- "Barthhold Block" (Berthold Block) isn't on Google Fonts / free CDNs — it's a
+     commercial typeface. Substituting Titan One, the closest free thick-stroke
+     block-display font, for the welcome screen's heading/button text (tested
+     against Baloo 2 800 first — Baloo 2 reads rounder/bubblier, Titan One
+     matches the reference's uniform blocky strokes much more closely). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Titan+One&family=Questrial&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #7FCDFB; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div style="position:fixed;top:8px;right:8px;z-index:999999;background:#ff5a36;color:#fff;font:700 12px/1 -apple-system,sans-serif;padding:5px 12px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);letter-spacing:.05em;pointer-events:none;">BETA</div>
+
+<div id="root"></div>
+
+<!-- React (no build step — plain UMD builds) -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+<!-- Firebase (compat SDK — plain <script> globals, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<script>
+"use strict";
+
+// =====================================================================
+// STORY CONTENT — edit this block to swap in real story text.
+// This is the ONLY part of the file you should need to touch to update
+// the story. Each beat needs: id, text, emotion (must be one of the keys
+// in EMOTIONS below), and image (path into the images/ folder).
+// To edit on GitHub: open this file in the repo, click the pencil
+// (Edit) icon, find this block, change the text between the quotes,
+// then commit. No need to touch anything below this block.
+//
+// PLACEHOLDER TEXT — written by interpreting Story-Slide-1..4 (protagonist
+// "Max"), matched to the real emotion labels baked into the Emotion-Slide
+// filenames (Exhaustion/Joy/Overwhelm/Relief). Replace with Sonal's copy
+// when ready. Only 4 of the 6 available images are wired in — beats 5/6
+// (Anxiety/Excitement) are pending a further story rework.
+// =====================================================================
+const STORY = [
+  {
+    id: 1,
+    text: "Max wakes up when his alarm clock rings — beep, beep, beep! He rubs his eyes and gives a big, long yawn. He feels exhausted.",
+    emotion: "exhausted",
+    image: "images/Story-Slide-1.jpeg?v=bb957bd",
+  },
+  {
+    id: 2,
+    text: "At breakfast, Max pours golden syrup over his favourite waffles. He takes a big bite and can't stop smiling. He feels joyful.",
+    emotion: "joyful",
+    image: "images/Story-Slide-2.jpeg?v=bb957bd",
+  },
+  {
+    id: 3,
+    text: "Max opens his cupboard to get dressed. Clothes are piled everywhere and he doesn't know where to start. His thoughts feel loud and jumbled. He feels overwhelmed.",
+    emotion: "overwhelmed",
+    image: "images/Story-Slide-3.jpeg?v=bb957bd",
+  },
+  {
+    id: 4,
+    text: "Mum sits down next to Max and picks out his jeans and white top together. Max takes a deep breath, and his shoulders relax. He feels relieved.",
+    emotion: "relieved",
+    image: "images/Story-Slide-4.jpeg?v=bb957bd",
+  },
+  {
+    id: 5,
+    text: "Max walks to school holding Mum's hand, his backpack heavy on his shoulders. His tummy feels fluttery and he keeps looking around at all the people. He feels anxious.",
+    emotion: "anxious",
+    image: "images/Story-Slide-5.jpeg?v=bb957bd",
+  },
+  {
+    id: 6,
+    text: "At the school gate, Max spots his best friend waving at him. He grins and runs to catch up, backpack bouncing with every step. He feels excited.",
+    emotion: "excited",
+    image: "images/Story-Slide-6.jpeg?v=bb957bd",
+  },
+];
+
+// Demo login codeword (no real auth in this prototype — see brief).
+const CODEWORD = "sunshine";
+
+// =====================================================================
+// FIREBASE CONFIG — paste your Web app config here from:
+// Firebase Console > Project settings > General > Your apps > SDK setup.
+// This object is safe to be public in client code — Firebase access is
+// controlled by Storage security rules, not by hiding these values.
+// Until this is filled in, voice recordings still work for local
+// playback in the browser, they just won't be saved to the cloud.
+// =====================================================================
+const FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_API_KEY_HERE",
+  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_PROJECT.appspot.com",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID",
+};
+
+const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
+let storageRef = null;
+if (FIREBASE_CONFIGURED) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  storageRef = firebase.storage().ref();
+}
+
+// =====================================================================
+// App logic below — no need to edit this for content changes.
+// =====================================================================
+const h = React.createElement;
+const Fragment = React.Fragment;
+const { useState, useRef, useEffect, useMemo } = React;
+
+const DISPLAY_FONT = "'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+// Welcome-screen-only fonts, matching Sonal's splash design. Not applied
+// app-wide yet — the rest of the app keeps DISPLAY_FONT/BODY_FONT above
+// until the other screens get the same restyle.
+const WELCOME_DISPLAY_FONT = "'Titan One', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+const WELCOME_BODY_FONT = "'Questrial', 'Segoe UI', system-ui, -apple-system, sans-serif";
+const BODY_FONT = "'Segoe UI', system-ui, -apple-system, sans-serif";
+
+const COLORS = {
+  surface: "#FFFFFF",
+  ink: "#3D3833",
+  inkSoft: "#6B655E",
+  primary: "#2FA6C7",
+  primaryDeep: "#1F87A4",
+  highlightBg: "#E1F1FA",
+  border: "#EFE6D3",
+  success: "#3FA85C",
+  successBg: "#E4F6E8",
+  danger: "#D9534F",
+};
+
+// Recording-screen accent colors, sampled from Sonal's reference art
+// (record-mic-branch.png / the Record N of 4 mockups).
+const RECORD_ORANGE = "#FF7A59";
+const RECORD_LEAF_COLOR = "#378E80";
+
+// Shared minimum height for the portrait content cards (intro, handoff,
+// recording) so they read as the same size moving through the flow,
+// instead of each one shrink-wrapping to its own content length. Sized to
+// the tallest recording beat's card (beat 4's text is the longest) so
+// nothing has to shrink to fit it — shorter screens pad up to match.
+const CARD_MIN_HEIGHT = 610;
+
+// Matches the 6 emotion labels baked into the Emotion-Slide filenames
+// (Exhaustion/Joy/Overwhelm/Relief/Anxiety/Excitement) rather than an
+// invented set — see the STORY block above.
+const EMOTIONS = [
+  { key: "exhausted", label: "Exhausted", image: "images/Emotion-Slide-1-Exhaustion.jpeg?v=bb957bd" },
+  { key: "joyful", label: "Joyful", image: "images/Emotion-Slide-2-Joy.jpeg?v=bb957bd" },
+  { key: "overwhelmed", label: "Overwhelmed", image: "images/Emotion-Slide-3-Overwhelm.jpeg?v=bb957bd" },
+  { key: "relieved", label: "Relieved", image: "images/Emotion-Slide-4-Relief.jpeg?v=bb957bd" },
+  { key: "anxious", label: "Anxious", image: "images/Emotion-Slide-5-Anxiety.jpeg?v=bb957bd" },
+  { key: "excited", label: "Excited", image: "images/Emotion-Slide-6-Excitement.jpeg?v=bb957bd" },
+];
+
+// =====================================================================
+// BUILD-A-FACE — the "face" story step lets the child assemble Max's
+// face one feature at a time (eyes, then eyebrows, then mouth) instead
+// of picking a single pre-made face image. Each feature is hand-drawn
+// per emotion below, on the same 68x68 head coordinate space the old
+// single-image Face component used, so a partially-built face and the
+// small per-option swatches can share one set of shape definitions.
+// =====================================================================
+const FACE_STEP_ORDER = ["eyes", "eyebrows", "mouth"];
+
+// Each feature type is a different natural shape (eyebrows/eyes are wide
+// and short, mouths are closer to square) — matched to the real swatch
+// crop dimensions so the option button's own aspect ratio hugs its
+// content exactly, instead of object-fit:contain letterboxing a wide
+// image inside a squarish box and making it look tiny.
+const FEATURE_BUTTON_ASPECT = {
+  eyebrows: "244 / 74",
+  eyes: "250 / 92",
+  mouth: "148 / 146",
+};
+
+// Real illustrated assets from Sonal, per emotion — when an emotion key
+// has an entry here, the build-a-face step uses these images instead of
+// the hand-coded SVG shapes below. Only "exhausted" is wired up so far
+// (first asset set, as a trial before asking for the remaining 5).
+// `blank`/`eyebrows`/`eyes`/`mouth` share one coordinate space (cropped
+// from the same source canvas) so they can be stacked directly with no
+// per-asset offset math. `swatches` are separate tight crops of just
+// that feature, used for the small option-button icons.
+const REAL_FACE_ASSETS = {
+  exhausted: {
+    blank: "images/exhausted/blank.png?v=bb957bd",
+    eyebrows: "images/exhausted/eyebrows.png?v=bb957bd",
+    eyes: "images/exhausted/eyes.png?v=bb957bd",
+    mouth: "images/exhausted/mouth.png?v=bb957bd",
+    aspectRatio: "600 / 540",
+    swatches: {
+      eyebrows: "images/exhausted/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/exhausted/swatch-eyes.png?v=bb957bd",
+      mouth: "images/exhausted/swatch-mouth.png?v=bb957bd",
+    },
+    // Each emotion's swatches are cropped tight to their own content, so
+    // their exact proportions differ slightly emotion to emotion (a
+    // joyful mouth isn't the same shape as an exhausted one) — stored
+    // per-emotion so each option button can match its own art exactly,
+    // falling back to FEATURE_BUTTON_ASPECT's rough per-feature default
+    // for emotions that don't have real assets yet.
+    swatchAspect: { eyebrows: "244 / 74", eyes: "250 / 92", mouth: "148 / 146" },
+  },
+  joyful: {
+    blank: "images/joyful/blank.png?v=bb957bd",
+    eyebrows: "images/joyful/eyebrows.png?v=bb957bd",
+    eyes: "images/joyful/eyes.png?v=bb957bd",
+    mouth: "images/joyful/mouth.png?v=bb957bd",
+    aspectRatio: "555 / 545",
+    swatches: {
+      eyebrows: "images/joyful/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/joyful/swatch-eyes.png?v=bb957bd",
+      mouth: "images/joyful/swatch-mouth.png?v=bb957bd",
+    },
+    swatchAspect: { eyebrows: "240 / 85", eyes: "231 / 100", mouth: "172 / 109" },
+  },
+  overwhelmed: {
+    blank: "images/overwhelmed/blank.png?v=bb957bd",
+    eyebrows: "images/overwhelmed/eyebrows.png?v=bb957bd",
+    eyes: "images/overwhelmed/eyes.png?v=bb957bd",
+    mouth: "images/overwhelmed/mouth.png?v=bb957bd",
+    aspectRatio: "517 / 503",
+    swatches: {
+      eyebrows: "images/overwhelmed/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/overwhelmed/swatch-eyes.png?v=bb957bd",
+      mouth: "images/overwhelmed/swatch-mouth.png?v=bb957bd",
+    },
+    swatchAspect: { eyebrows: "252 / 73", eyes: "248 / 96", mouth: "147 / 73" },
+  },
+  anxious: {
+    blank: "images/anxious/blank.png?v=bb957bd",
+    eyebrows: "images/anxious/eyebrows.png?v=bb957bd",
+    eyes: "images/anxious/eyes.png?v=bb957bd",
+    mouth: "images/anxious/mouth.png?v=bb957bd",
+    aspectRatio: "500 / 604",
+    swatches: {
+      eyebrows: "images/anxious/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/anxious/swatch-eyes.png?v=bb957bd",
+      mouth: "images/anxious/swatch-mouth.png?v=bb957bd",
+    },
+    swatchAspect: { eyebrows: "261 / 82", eyes: "247 / 105", mouth: "115 / 62" },
+  },
+  excited: {
+    blank: "images/excited/blank.png?v=bb957bd",
+    eyebrows: "images/excited/eyebrows.png?v=bb957bd",
+    eyes: "images/excited/eyes.png?v=bb957bd",
+    mouth: "images/excited/mouth.png?v=bb957bd",
+    aspectRatio: "514 / 602",
+    swatches: {
+      eyebrows: "images/excited/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/excited/swatch-eyes.png?v=bb957bd",
+      mouth: "images/excited/swatch-mouth.png?v=bb957bd",
+    },
+    swatchAspect: { eyebrows: "268 / 77", eyes: "257 / 100", mouth: "193 / 116" },
+  },
+  relieved: {
+    blank: "images/relieved/blank.png?v=bb957bd",
+    eyebrows: "images/relieved/eyebrows.png?v=bb957bd",
+    eyes: "images/relieved/eyes.png?v=bb957bd",
+    mouth: "images/relieved/mouth.png?v=bb957bd",
+    aspectRatio: "505 / 560",
+    swatches: {
+      eyebrows: "images/relieved/swatch-eyebrows.png?v=bb957bd",
+      eyes: "images/relieved/swatch-eyes.png?v=bb957bd",
+      mouth: "images/relieved/swatch-mouth.png?v=bb957bd",
+    },
+    swatchAspect: { eyebrows: "224 / 67", eyes: "216 / 89", mouth: "141 / 61" },
+  },
+};
+
+const FEATURE_PROMPTS = {
+  eyes: "Which eyes match how he's feeling?",
+  eyebrows: "Which eyebrows match how he's feeling?",
+  mouth: "Which mouth matches how he's feeling?",
+};
+
+// Cropped viewBoxes so each option button shows just that one feature,
+// zoomed in like a swatch, rather than a whole tiny face.
+const FEATURE_VIEWBOX = {
+  eyebrows: "14 15 40 16",
+  eyes: "14 25 40 14",
+  mouth: "18 39 32 18",
+};
+
+// Colors sampled by eye from Max's illustrations (images/Emotion-Slide-*),
+// so these filled shapes read as "Max's features" rather than generic
+// clip-art — approximate, not a pixel-accurate match.
+const FEATURE_HAIR = "#7A4A2C";
+const FEATURE_MOUTH = "#B5474B";
+const FEATURE_MOUTH_DARK = "#8B3A3F";
+const FEATURE_EYE_DARK = "#4A2E1A";
+const FEATURE_SKIN = "#F2C29C";
+
+const BROW_STYLE = { fill: FEATURE_HAIR, stroke: "none" };
+const EYELINE_STYLE = { fill: "none", stroke: FEATURE_EYE_DARK, strokeWidth: 4, strokeLinecap: "round" };
+
+function openEye(cx, cy, r) {
+  return h(Fragment, null,
+    h("circle", { cx, cy, r, fill: "#FFFFFF", stroke: FEATURE_EYE_DARK, strokeWidth: 1.5 }),
+    h("circle", { cx: cx + r * 0.15, cy, r: r * 0.58, fill: FEATURE_EYE_DARK }),
+    h("circle", { cx: cx + r * 0.4, cy: cy - r * 0.3, r: r * 0.16, fill: "#FFFFFF" })
+  );
+}
+
+// Eyebrow pairs are hand-mirrored (not computed via SVG transform) —
+// left brow spans roughly x:18-30, right brow is its mirror image
+// around the face's x=34 midline, same as the eyes/mouth below.
+const FEATURE_SHAPES = {
+  eyebrows: {
+    // flat, low, barely tapered — tired
+    exhausted: () => h(Fragment, null,
+      h("path", { d: "M18 26.5 Q24 25 30 26.5 Q24 27.5 18 26.5 Z", ...BROW_STYLE }),
+      h("path", { d: "M50 26.5 Q44 25 38 26.5 Q44 27.5 50 26.5 Z", ...BROW_STYLE })
+    ),
+    // high arch, peak in the middle — delighted
+    joyful: () => h(Fragment, null,
+      h("path", { d: "M18 24 Q24 15 30 21 Q24 20 18 24 Z", ...BROW_STYLE }),
+      h("path", { d: "M50 24 Q44 15 38 21 Q44 20 50 24 Z", ...BROW_STYLE })
+    ),
+    // inner end sharply raised toward the nose — worried/knitted
+    overwhelmed: () => h(Fragment, null,
+      h("path", { d: "M18 25 Q24 19 30 17 Q24 21 18 25 Z", ...BROW_STYLE }),
+      h("path", { d: "M50 25 Q44 19 38 17 Q44 21 50 25 Z", ...BROW_STYLE })
+    ),
+    // gentle, relaxed arch — soft relief
+    relieved: () => h(Fragment, null,
+      h("path", { d: "M18 23 Q24 19 30 22 Q24 21.5 18 23 Z", ...BROW_STYLE }),
+      h("path", { d: "M50 23 Q44 19 38 22 Q44 21.5 50 23 Z", ...BROW_STYLE })
+    ),
+  },
+  eyes: {
+    // closed, drooping sleepy lines
+    exhausted: () => h(Fragment, null,
+      h("path", { d: "M19 31 Q24 33.5 29 31", ...EYELINE_STYLE }),
+      h("path", { d: "M39 31 Q44 33.5 49 31", ...EYELINE_STYLE })
+    ),
+    // squeezed into happy crescents
+    joyful: () => h(Fragment, null,
+      h("path", { d: "M19 32 Q24 25 29 32", ...EYELINE_STYLE }),
+      h("path", { d: "M39 32 Q44 25 49 32", ...EYELINE_STYLE })
+    ),
+    // wide open, alarmed
+    overwhelmed: () => h(Fragment, null, openEye(24, 31, 5.5), openEye(44, 31, 5.5)),
+    // softly open, content
+    relieved: () => h(Fragment, null, openEye(24, 31, 4.2), openEye(44, 31, 4.2)),
+  },
+  mouth: {
+    // small open yawn
+    exhausted: () => h("ellipse", { cx: 34, cy: 46, rx: 5, ry: 4, fill: FEATURE_MOUTH_DARK, stroke: "none" }),
+    // big open laughing smile with a hint of teeth
+    joyful: () => h(Fragment, null,
+      h("path", { d: "M22 42 Q34 56 46 42 Q34 50 22 42 Z", fill: FEATURE_MOUTH, stroke: "none" }),
+      h("rect", { x: 27, y: 43, width: 14, height: 4.5, rx: 2, fill: "#FFFFFF" })
+    ),
+    // small wavy worried line
+    overwhelmed: () => h("path", { d: "M25 47 Q29 44 33 47 Q37 44 41 47", fill: "none", stroke: FEATURE_MOUTH, strokeWidth: 3.5, strokeLinecap: "round" }),
+    // soft closed smile
+    relieved: () => h("path", { d: "M26 45 Q34 49.5 42 45", fill: "none", stroke: FEATURE_MOUTH, strokeWidth: 3.5, strokeLinecap: "round" }),
+  },
+};
+
+const FEATURE_PLACEHOLDER_STROKE = {
+  stroke: COLORS.border,
+  strokeWidth: 3,
+  strokeLinecap: "round",
+};
+
+// Curated by hand per emotion+feature, picking whichever other emotion's
+// real art looks most obviously different (open vs closed eyes, big open
+// vs thin closed mouth, bold angled vs gentle-curve eyebrows) — not
+// randomized or auto-selected, since random distractors sometimes landed
+// on two options that looked nearly identical. Reuses existing real art
+// (no new assets needed); if a future emotion has no real art yet,
+// FeatureIcon already falls back to the placeholder SVG shape on its own.
+const FEATURE_DISTRACTOR = {
+  exhausted: { eyebrows: "overwhelmed", eyes: "overwhelmed", mouth: "relieved" },
+  joyful: { eyebrows: "overwhelmed", eyes: "overwhelmed", mouth: "anxious" },
+  overwhelmed: { eyebrows: "joyful", eyes: "exhausted", mouth: "excited" },
+  relieved: { eyebrows: "anxious", eyes: "exhausted", mouth: "exhausted" },
+  anxious: { eyebrows: "excited", eyes: "exhausted", mouth: "joyful" },
+  excited: { eyebrows: "anxious", eyes: "overwhelmed", mouth: "overwhelmed" },
+};
+
+// Order here is always [correct, distractor] — which SIDE the correct one
+// renders on is randomized separately, once per step, at the call site.
+function getFeatureOptions(feature, correctKey) {
+  return [correctKey, FEATURE_DISTRACTOR[correctKey][feature]];
+}
+
+// Exactly 4 choices for the identify step: the correct emotion plus 3
+// others, fixed/deterministic per emotion (same reasoning as above) rather
+// than randomized — simplest option that still varies beat to beat since
+// EMOTIONS has 6 keys and a beat's correct answer rotates which 3 "others"
+// get excluded.
+function getIdentifyOptions(correctKey) {
+  const others = EMOTIONS.map((e) => e.key).filter((k) => k !== correctKey);
+  const keys = [correctKey, ...others.slice(0, 3)];
+  const seed = correctKey.length % keys.length;
+  return keys.slice(seed).concat(keys.slice(0, seed));
+}
+
+// The face as built so far this beat: picked features render their real
+// shape, not-yet-picked ones render as a plain placeholder line so the
+// child sees where each feature will go. When `emotion` has a real asset
+// set (REAL_FACE_ASSETS), picked features layer the actual illustrated
+// images over the blank head instead — not-yet-picked ones just leave
+// the blank head showing, no placeholder needed since it isn't a bare
+// circle.
+function FacePreview({ picks, size = 110, style, emotion }) {
+  const real = REAL_FACE_ASSETS[emotion];
+  if (real) {
+    const layers = [real.blank];
+    if (picks.eyebrows) layers.push(real.eyebrows);
+    if (picks.eyes) layers.push(real.eyes);
+    if (picks.mouth) layers.push(real.mouth);
+    return h(
+      "div",
+      { style: { position: "relative", width: size, aspectRatio: real.aspectRatio, ...style } },
+      layers.map((src, i) =>
+        h("img", {
+          key: i, src, alt: i === 0 ? "Face being built" : "",
+          style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" },
+        })
+      )
+    );
+  }
+  return h(
+    "svg",
+    { width: size, height: size, viewBox: "0 0 68 68", role: "img", "aria-label": "Face being built", style },
+    h("circle", { cx: 34, cy: 34, r: 30, fill: FEATURE_SKIN, stroke: COLORS.border, strokeWidth: 2 }),
+    picks.eyebrows
+      ? FEATURE_SHAPES.eyebrows[picks.eyebrows]()
+      : h(Fragment, null,
+          h("path", { d: "M19 24 L29 24", ...FEATURE_PLACEHOLDER_STROKE }),
+          h("path", { d: "M39 24 L49 24", ...FEATURE_PLACEHOLDER_STROKE })
+        ),
+    picks.eyes
+      ? FEATURE_SHAPES.eyes[picks.eyes]()
+      : h(Fragment, null,
+          h("path", { d: "M19 31 L29 31", ...FEATURE_PLACEHOLDER_STROKE }),
+          h("path", { d: "M39 31 L49 31", ...FEATURE_PLACEHOLDER_STROKE })
+        ),
+    picks.mouth
+      ? FEATURE_SHAPES.mouth[picks.mouth]()
+      : h("path", { d: "M26 46 L42 46", ...FEATURE_PLACEHOLDER_STROKE })
+  );
+}
+
+// One option swatch — just the isolated feature shape, cropped in tight,
+// on a skin-tone backdrop so it reads as a piece of a face rather than an
+// abstract mark. Uses the real illustrated swatch when one exists for
+// this emotion, otherwise falls back to the hand-coded SVG shape.
+function FeatureIcon({ feature, emotionKey }) {
+  // width/height 100% of the button — the button's own size (set by its
+  // row width + FEATURE_BUTTON_ASPECT at the call site) is what controls
+  // how big this renders, not a cap here.
+  const real = REAL_FACE_ASSETS[emotionKey];
+  if (real) {
+    return h("img", {
+      src: real.swatches[feature], alt: "",
+      style: { width: "100%", height: "100%", objectFit: "contain", display: "block" },
+    });
+  }
+  return h(
+    "svg",
+    { style: { width: "100%", height: "100%", display: "block" }, viewBox: FEATURE_VIEWBOX[feature], role: "img", "aria-hidden": "true" },
+    h("rect", { x: -20, y: -20, width: 200, height: 200, fill: FEATURE_SKIN }),
+    FEATURE_SHAPES[feature][emotionKey]()
+  );
+}
+
+function PlayIcon() {
+  return h(
+    "svg",
+    { width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": "true" },
+    h("path", { d: "M4 2.5 L13 8 L4 13.5 Z", fill: "currentColor" })
+  );
+}
+
+// Leaf shape: a symmetric pointed-oval (two quadratic curves meeting at a
+// top and bottom point), tilted alternately left/right per leaf via
+// rotation — reads as the same "row of leaves" motif as Sonal's art
+// without depending on getting an asymmetric arc direction exactly right.
+function leafPathD(size) {
+  return `M ${size / 2} 0 Q ${size} ${size / 2} ${size / 2} ${size} Q 0 ${size / 2} ${size / 2} 0 Z`;
+}
+
+// Progress indicator for the per-beat recording flow: filledCount leaves
+// are solid, the rest are outline-only — driven directly by recordBeatIndex,
+// no separate state to keep in sync.
+function LeafRow({ filledCount, total, style }) {
+  const size = 30;
+  const spacing = 24;
+  const pad = 14;
+  const width = spacing * (total - 1) + size + pad * 2;
+  const height = size + 16;
+  const baseY = height - size / 2 - 2;
+  return h(
+    "svg",
+    {
+      viewBox: `0 0 ${width} ${height}`,
+      style: { width: 160, height: "auto", display: "block", margin: "0 auto", ...style },
+    },
+    Array.from({ length: total }).map((_, i) => {
+      const cx = pad + size / 2 + i * spacing;
+      const angle = i % 2 === 0 ? -32 : 32;
+      return h("path", {
+        key: i,
+        d: leafPathD(size),
+        transform: `translate(${cx - size / 2}, ${baseY - size / 2}) rotate(${angle} ${size / 2} ${size / 2})`,
+        fill: i < filledCount ? RECORD_LEAF_COLOR : "none",
+        stroke: RECORD_LEAF_COLOR,
+        strokeWidth: 2.5,
+        strokeLinejoin: "round",
+      });
+    })
+  );
+}
+
+function ProgressDots({ total, current, style }) {
+  return h(
+    "div",
+    { style: { display: "flex", gap: 8, justifyContent: "center", marginBottom: 28, ...style } },
+    Array.from({ length: total }).map((_, i) =>
+      h("div", {
+        key: i,
+        style: {
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          background: i <= current ? COLORS.primary : COLORS.border,
+          transition: "background 0.3s ease",
+        },
+      })
+    )
+  );
+}
+
+function PrimaryButton({ children, onClick, style, disabled }) {
+  return h(
+    "button",
+    {
+      onClick,
+      disabled,
+      style: {
+        width: "100%",
+        padding: "16px 24px",
+        borderRadius: 16,
+        border: "none",
+        background: disabled ? COLORS.border : COLORS.primary,
+        color: disabled ? COLORS.inkSoft : "#FFFFFF",
+        fontFamily: DISPLAY_FONT,
+        fontWeight: 700,
+        fontSize: 17,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "background 0.2s ease, transform 0.1s ease",
+        ...style,
+      },
+      onMouseDown: (e) => { if (!disabled) e.currentTarget.style.transform = "scale(0.98)"; },
+      onMouseUp: (e) => { e.currentTarget.style.transform = "scale(1)"; },
+    },
+    children
+  );
+}
+
+// Shared shape for the plain static "message" screens between flow steps
+// (parent-facing intro, child-facing handoff) — bold-bordered white card,
+// heading, a few paragraphs, one Continue button. Matches the voice/story
+// screens' card treatment and the welcome/recording screens' button style.
+function MessageScreen({ heading, paragraphs, buttonLabel, onContinue }) {
+  return h(
+    "div",
+    {
+      style: {
+        background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, padding: "34px 26px 28px",
+        minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box", display: "flex", flexDirection: "column",
+      },
+    },
+    h(
+      "h1",
+      {
+        style: {
+          fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+          fontSize: "clamp(20px, 6vw, 26px)", color: "#1A1A1A", textAlign: "center", margin: "0 0 22px",
+        },
+      },
+      heading
+    ),
+    paragraphs.map((text, i) =>
+      h("p", {
+        key: i,
+        style: {
+          fontFamily: WELCOME_BODY_FONT, fontSize: 16, lineHeight: 1.6, color: COLORS.ink,
+          margin: i === paragraphs.length - 1 ? "0 0 28px" : "0 0 16px",
+        },
+      }, text)
+    ),
+    h(
+      "button",
+      {
+        onClick: onContinue,
+        style: {
+          width: "100%", padding: "16px 24px", borderRadius: 999, border: "none",
+          background: "#7FCDFB", color: "#1A1A1A", fontFamily: WELCOME_DISPLAY_FONT,
+          fontWeight: 400, fontSize: 18, letterSpacing: 0.5, textTransform: "uppercase", cursor: "pointer",
+          marginTop: "auto",
+        },
+      },
+      buttonLabel || "Continue"
+    )
+  );
+}
+
+function TextButton({ children, onClick, style }) {
+  return h(
+    "button",
+    {
+      onClick,
+      style: {
+        background: "none",
+        border: "none",
+        color: COLORS.inkSoft,
+        fontFamily: BODY_FONT,
+        fontSize: 14,
+        textDecoration: "underline",
+        cursor: "pointer",
+        padding: 0,
+        ...style,
+      },
+    },
+    children
+  );
+}
+
+function App() {
+  const [screen, setScreen] = useState("welcome");
+  const [name, setName] = useState("");
+  const [codeword, setCodeword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  const [beatIndex, setBeatIndex] = useState(0);
+  const [step, setStep] = useState("narrate");
+  const [feedback, setFeedback] = useState("");
+  const [correctFlash, setCorrectFlash] = useState(false);
+
+  // --- Build-a-face step (eyes -> eyebrows -> mouth), reset per beat ---
+  const [faceStepIndex, setFaceStepIndex] = useState(0);
+  const [facePicks, setFacePicks] = useState({ eyes: null, eyebrows: null, mouth: null });
+  // Which side (0 = first, 1 = second) the correct feature option lands
+  // on — genuinely randomized (not the fixed/deterministic pattern used
+  // for distractor selection), but only re-rolled when the actual step
+  // changes, not on every re-render (e.g. a wrong-pick triggering
+  // `feedback` to update) — otherwise options would jump around mid-guess.
+  const featureOptionSwap = useMemo(() => Math.random() < 0.5, [beatIndex, faceStepIndex]);
+
+  // --- Voice recording state (one clip per beat, recorded during setup) ---
+  const [recordBeatIndex, setRecordBeatIndex] = useState(0);
+  const [beatClips, setBeatClips] = useState(() => Array(STORY.length).fill(null)); // {blob, url} | null, per beat
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState(null);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [recordError, setRecordError] = useState("");
+
+  // --- Story playback ---
+  const [muted, setMuted] = useState(false);
+
+  // Tracks actual device orientation (not a user choice) so the story
+  // screen can lay out sensibly in landscape without ever asking anyone
+  // to rotate — reacts to real rotation via matchMedia, no polling.
+  const [isLandscape, setIsLandscape] = useState(
+    () => window.matchMedia("(orientation: landscape)").matches
+  );
+
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const audioRef = useRef(null);
+
+  const beat = STORY[beatIndex];
+  const isLastBeat = beatIndex === STORY.length - 1;
+
+  function handleLogin() {
+    if (!name.trim()) {
+      setLoginError("Enter a name to continue.");
+      return;
+    }
+    if (codeword.trim().toLowerCase() !== CODEWORD) {
+      setLoginError("That codeword doesn't match. Try again.");
+      return;
+    }
+    setLoginError("");
+    setScreen("intro");
+  }
+
+  function startStory() {
+    setBeatIndex(0);
+    setStep("narrate");
+    setFeedback("");
+    setScreen("story");
+  }
+
+  async function startRecording() {
+    setRecordError("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setRecordError("Recording isn't supported in this browser. Try uploading a file instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        setRecordedBlob(blob);
+        setRecordedUrl(URL.createObjectURL(blob));
+        streamRef.current && streamRef.current.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+      setRecordSeconds(0);
+      timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      setRecordError("Couldn't access the microphone. Check permissions, or upload a file instead.");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    clearInterval(timerRef.current);
+  }
+
+  function clearRecording() {
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setRecordError("");
+  }
+
+  function handleFileChosen(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setRecordedBlob(file);
+    setRecordedUrl(URL.createObjectURL(file));
+    setRecordError("");
+  }
+
+  // Saves (or skips) the clip currently being recorded for `recordBeatIndex`,
+  // then moves to the next beat's recording step, or into the story once all
+  // beats have a clip (or have been skipped). Clips stay in memory only —
+  // no Firebase upload yet, see FIREBASE_CONFIG comment above.
+  function saveClipAndAdvance() {
+    const isLastRecordStep = recordBeatIndex === STORY.length - 1;
+    setBeatClips((prev) => {
+      const next = [...prev];
+      next[recordBeatIndex] = recordedBlob ? { blob: recordedBlob, url: recordedUrl } : null;
+      return next;
+    });
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setRecordError("");
+    if (isLastRecordStep) {
+      setScreen("handoff");
+    } else {
+      setRecordBeatIndex((i) => i + 1);
+    }
+  }
+
+  function stopBeatAudio() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  }
+
+  function playBeatAudio(index) {
+    const clip = beatClips[index];
+    if (!audioRef.current || !clip) return;
+    audioRef.current.src = clip.url;
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(() => {});
+  }
+
+  useEffect(() => {
+    audioRef.current = new Audio();
+    return () => {
+      clearInterval(timerRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, []);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(orientation: landscape)");
+    const handler = (e) => setIsLandscape(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.muted = muted;
+  }, [muted]);
+
+  // Autoplay the current beat's clip when its narration step loads, and
+  // stop playback as soon as the user leaves that step (identify/face, next
+  // beat, or out of the story entirely).
+  useEffect(() => {
+    if (screen === "story" && step === "narrate") {
+      playBeatAudio(beatIndex);
+    } else {
+      stopBeatAudio();
+    }
+  }, [screen, step, beatIndex]);
+
+  function handleEmotionPick(key) {
+    if (key === beat.emotion) {
+      setFeedback("");
+      setCorrectFlash(true);
+      setTimeout(() => {
+        setCorrectFlash(false);
+        setFaceStepIndex(0);
+        setFacePicks({ eyes: null, eyebrows: null, mouth: null });
+        setStep("face");
+      }, 700);
+    } else {
+      setFeedback("Not quite — try again.");
+    }
+  }
+
+  // Checks the pick for whichever feature (eyes/eyebrows/mouth) is
+  // current, per FACE_STEP_ORDER — a wrong pick stays on that same
+  // feature (matching the identify step's retry behavior) rather than
+  // revealing the answer or skipping ahead.
+  function handleFeaturePick(key) {
+    const currentFeature = FACE_STEP_ORDER[faceStepIndex];
+    if (key === beat.emotion) {
+      setFeedback("");
+      setCorrectFlash(true);
+      setTimeout(() => {
+        setCorrectFlash(false);
+        setFacePicks((prev) => ({ ...prev, [currentFeature]: key }));
+        if (faceStepIndex === FACE_STEP_ORDER.length - 1) {
+          setStep("reveal");
+        } else {
+          setFaceStepIndex((i) => i + 1);
+        }
+      }, 700);
+    } else {
+      setFeedback("Not quite — try again.");
+    }
+  }
+
+  // Leaving the reveal screen (all 3 features done for this beat) — same
+  // advance-or-finish logic handleFeaturePick used to run immediately on
+  // the last correct pick, now deferred until the child continues past
+  // the celebratory reveal instead.
+  function continueFromReveal() {
+    if (isLastBeat) {
+      setScreen("end");
+    } else {
+      setBeatIndex((i) => i + 1);
+      setStep("narrate");
+    }
+  }
+
+  function toggleMute() {
+    setMuted((m) => !m);
+  }
+
+  // Diagonal stripe pattern (colors verified against Sonal's Background.png)
+  // used as the page background behind every screen's card, so the space
+  // around it reads as intentional design instead of dead space —
+  // CSS-generated so it can fill any viewport shape/size without loading
+  // or tiling a raster asset.
+  const STRIPE_BG =
+    "repeating-linear-gradient(135deg, #7FCDFB 0px, #7FCDFB 24px, #69C4FA 24px, #69C4FA 48px)";
+
+  const shellStyle = {
+    minHeight: "100vh",
+    background: STRIPE_BG,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    // Padding shrinks on narrow (phone-width) screens so the card has more
+    // room to grow into, and holds at a comfortable size once the screen is
+    // wide enough that the card's own max-width cap is the binding
+    // constraint anyway (see cardStyle below).
+    padding: "clamp(12px, 5vw, 40px) clamp(12px, 5vw, 24px)",
+    fontFamily: BODY_FONT,
+    color: COLORS.ink,
+    boxSizing: "border-box",
+  };
+
+  // One card width for every screen in portrait: fill available width up
+  // to a 420px cap, same side margins everywhere. This used to also factor
+  // in 100vh (to let the welcome screen's card fill more of a tall phone's
+  // height) — dropped that, because 100vh isn't stable across screens on
+  // mobile browsers: it shifts as the address bar shows/hides, which
+  // differs per screen depending on content height/scroll, so two screens
+  // with byte-identical CSS could still resolve to different widths. Pure
+  // vw + a fixed cap can't drift like that.
+  // The one intentional exception: the story screen in landscape widens to
+  // 760px so the side-by-side narrate layout has room to use the extra
+  // width — everything else, including the story screen in portrait, uses
+  // the same capped-vw sizing.
+  const cardStyle = (screen === "story" && isLandscape)
+    ? { width: "min(calc(100vw - 32px), 760px)" }
+    : { width: "min(calc(100vw - 32px), 420px)" };
+
+  const labelStyle = {
+    display: "block",
+    fontFamily: DISPLAY_FONT,
+    fontWeight: 700,
+    fontSize: 14,
+    marginBottom: 6,
+    color: COLORS.inkSoft,
+  };
+
+  let screenContent = null;
+
+  if (screen === "welcome") {
+    // Positions are percentages of the card's own height, matched to the
+    // band layout baked into images/opening-background-card.png?v=bb957bd (a crop of
+    // opening-background.png down to just the bordered white card, with
+    // the outer decorative blue-striped margin removed — that margin is
+    // now rendered separately as STRIPE_BG on the page behind it,
+    // so it can fill any screen shape instead of being locked to the
+    // original image's exact proportions). Percentages below were
+    // recomputed for the new crop (seam positions shift slightly since the
+    // crop removes ~2-4% margin from each edge) — see the conversion notes
+    // in the session history if this image gets re-cropped later.
+    // The card's aspect-ratio is locked to the crop's actual proportions
+    // (1326x1934) so every element scales together at any screen size.
+    // Pills and inputs are deliberately positioned to straddle the seams
+    // between bands (like the reference mockup's layered/collaged look),
+    // not sit fully inside them. This stays robust across screen sizes
+    // because every offset here is a % of the same aspect-ratio-locked
+    // box the background image fills — pill, input, and seam all scale
+    // together by the same factor. The one soft spot: pill/input padding
+    // is fixed px, not %, so the overlap is a couple of points deeper on
+    // a narrow phone than on the 420px-max desktop card — imperceptible
+    // in practice, not worth clamp()/vw complexity for a prototype.
+    const welcomePillStyle = (bg) => ({
+      display: "block", width: "80%", boxSizing: "border-box", margin: "0 auto 22px",
+      background: bg, color: COLORS.ink, textAlign: "center",
+      fontFamily: WELCOME_BODY_FONT, fontSize: 20, fontWeight: 500,
+      padding: "8px 22px", borderRadius: 999,
+    });
+    const welcomeInputStyle = {
+      width: "100%", boxSizing: "border-box", padding: "16px 18px",
+      borderRadius: 999, border: "2px solid #2A2A2A", fontSize: 17,
+      fontFamily: WELCOME_BODY_FONT, outline: "none",
+    };
+    screenContent = h(
+      "div",
+      {
+        style: {
+          position: "relative", width: "100%", aspectRatio: "1326 / 1934", overflow: "hidden",
+          backgroundImage: "url(images/opening-background-v2-card.png?v=bb957bd)",
+          backgroundSize: "100% 100%", backgroundRepeat: "no-repeat",
+        },
+      },
+      h("h1", {
+        style: {
+          position: "absolute", top: "9.3%", left: "6.3%", right: "6.3%", textAlign: "center",
+          margin: 0, fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+          fontSize: "clamp(22px, 7.5vw, 32px)", lineHeight: 1.15, color: "#1A1A1A",
+        },
+      }, "Let's get ready!"),
+
+      h("div", { style: { position: "absolute", top: "24.8%", left: "6.3%", right: "6.3%" } },
+        h("span", { style: welcomePillStyle("#F6BC2D") }, "Your Name"),
+        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Enter your name", style: welcomeInputStyle })
+      ),
+
+      h("div", { style: { position: "absolute", top: "51.3%", left: "6.3%", right: "6.3%" } },
+        h("span", { style: welcomePillStyle("#F6BC2D") }, "Codeword"),
+        h("input", { value: codeword, onChange: (e) => setCodeword(e.target.value), placeholder: "Enter the codeword", style: welcomeInputStyle })
+      ),
+
+      h(
+        "div",
+        { style: { position: "absolute", top: "80.1%", left: "6.3%", right: "6.3%", textAlign: "center" } },
+        h(
+          "button",
+          {
+            onClick: handleLogin,
+            style: {
+              width: "100%", padding: "18px 24px", borderRadius: 999, border: "none",
+              background: "#7FCDFB", color: "#1A1A1A", fontFamily: WELCOME_DISPLAY_FONT,
+              fontWeight: 400, fontSize: 22, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer",
+            },
+          },
+          "Begin"
+        ),
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontSize: 12, color: COLORS.inkSoft, margin: "10px 0 0", fontStyle: "italic" } },
+          `Demo codeword: ${CODEWORD}`
+        ),
+        loginError && h("p", { style: { fontFamily: WELCOME_BODY_FONT, color: COLORS.danger, fontSize: 13, margin: "6px 0 0" } }, loginError)
+      )
+    );
+  } else if (screen === "intro") {
+    // Parent-facing "what this is" message, between login and the
+    // recording setup. No image of its own — the login screen's band
+    // artwork is specific to its name/codeword inputs and wouldn't fit
+    // plain paragraphs, so this reuses the same plain white card
+    // treatment as the voice/story screens instead.
+    screenContent = h(MessageScreen, {
+      heading: "A story to share together",
+      paragraphs: [
+        "This is a short story about Max's morning, told in your own voice.",
+        "You'll record a few short clips as you go, then your child can settle in and enjoy the story — spotting how Max feels along the way.",
+        "Let's get your voice recorded first.",
+      ],
+      onContinue: () => setScreen("voice"),
+    });
+  } else if (screen === "handoff") {
+    // Child-facing handoff, after all 4 clips are recorded and before the
+    // story itself starts — cues the parent to pass the device/attention
+    // over. Same MessageScreen shape as the "intro" screen above.
+    screenContent = h(MessageScreen, {
+      heading: "Your turn now!",
+      paragraphs: [
+        "Get comfy — Max's story is about to begin, in a voice you know.",
+        "Watch out for how Max is feeling. You'll get to pick the right feeling, and match it to a face.",
+        "If you're not sure, that's okay — you can always try again.",
+        "Ready? Press play!",
+      ],
+      onContinue: startStory,
+    });
+  } else if (screen === "voice") {
+    // Restyled to match Sonal's per-beat recording redesign: mic+branch is
+    // a real image (images/record-mic-branch.png?v=bb957bd, cropped from her art
+    // with the leaf outlines removed), the 4 leaves are drawn fresh by
+    // LeafRow above so their fill state can track recordBeatIndex directly
+    // — no separate progress state to keep in sync. Recording logic below
+    // (canUseRecorder, startRecording/stopRecording, handleFileChosen,
+    // recordedUrl preview, recordError, saveClipAndAdvance) is untouched.
+    const canUseRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const recordBeat = STORY[recordBeatIndex];
+    screenContent = h(
+      "div",
+      {
+        style: {
+          background: COLORS.surface, border: "3px solid #000000", borderRadius: 24,
+          padding: "30px 22px 26px", textAlign: "center",
+          minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box", display: "flex", flexDirection: "column",
+        },
+      },
+      h("img", {
+        src: "images/record-mic-branch.png?v=bb957bd", alt: "",
+        style: { width: "36%", minWidth: 90, display: "block", margin: "0 auto" },
+      }),
+      h(LeafRow, {
+        filledCount: recordBeatIndex + 1, total: STORY.length,
+        style: { marginTop: -16, marginBottom: 8 },
+      }),
+      h(
+        "h1",
+        {
+          style: {
+            fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, textTransform: "uppercase",
+            fontSize: "clamp(18px, 5.5vw, 24px)", color: RECORD_ORANGE, margin: "0 0 24px",
+          },
+        },
+        `Record clip ${recordBeatIndex + 1} of ${STORY.length}`
+      ),
+
+      h(
+        "div",
+        {
+          style: {
+            background: "#F6BC2D", textAlign: "left", padding: "26px 20px", marginBottom: 22,
+            clipPath: "polygon(0% 8%, 15% 2%, 30% 6%, 50% 0%, 70% 5%, 85% 1%, 100% 6%, 100% 92%, 85% 98%, 70% 94%, 50% 100%, 30% 95%, 15% 99%, 0% 94%)",
+          },
+        },
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontWeight: 700, fontSize: 15, color: "#1A1A1A", margin: "0 0 10px" } }, "Read this bit aloud:"),
+        h("p", { style: { fontFamily: WELCOME_BODY_FONT, fontSize: 16, lineHeight: 1.6, color: "#1A1A1A", margin: 0 } }, recordBeat.text)
+      ),
+
+      // Recorder controls
+      !recordedUrl && h(
+        "div",
+        { style: { marginBottom: 20 } },
+        canUseRecorder && h(
+          "button",
+          {
+            onClick: isRecording ? stopRecording : startRecording,
+            style: {
+              width: "100%", padding: "16px 24px", borderRadius: 999, border: "none",
+              background: isRecording ? COLORS.danger : "#7FCDFB", color: "#1A1A1A",
+              fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 18, letterSpacing: 0.5,
+              textTransform: "uppercase", cursor: "pointer", marginBottom: 14,
+            },
+          },
+          isRecording ? `Stop recording (${recordSeconds}s)` : "Record my voice"
+        ),
+        h(
+          "label",
+          {
+            htmlFor: "audio-file-input",
+            style: {
+              display: "inline-block", color: COLORS.primaryDeep, fontFamily: WELCOME_BODY_FONT,
+              fontSize: 14, textDecoration: "underline", cursor: "pointer",
+            },
+          },
+          canUseRecorder ? "Or choose an audio file instead" : "Choose an audio file"
+        ),
+        h("input", {
+          id: "audio-file-input", type: "file", accept: "audio/*", onChange: handleFileChosen,
+          style: { display: "none" },
+        })
+      ),
+
+      // Playback preview once we have something
+      recordedUrl && h(
+        "div",
+        { style: { marginBottom: 20 } },
+        h("audio", { controls: true, src: recordedUrl, style: { width: "100%", marginBottom: 10 } }),
+        h(TextButton, { onClick: clearRecording }, "Record again")
+      ),
+
+      recordError && h("p", { style: { fontFamily: WELCOME_BODY_FONT, color: COLORS.danger, fontSize: 14, marginBottom: 16 } }, recordError),
+
+      h(
+        "button",
+        {
+          onClick: saveClipAndAdvance,
+          style: {
+            width: "100%", padding: "14px 24px", borderRadius: 999, border: "none",
+            background: COLORS.highlightBg, color: COLORS.primaryDeep,
+            fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 16, letterSpacing: 0.5,
+            textTransform: "uppercase", cursor: "pointer", marginTop: "auto",
+          },
+        },
+        recordedUrl
+          ? (recordBeatIndex === STORY.length - 1 ? "Continue" : "Save & continue")
+          : (recordBeatIndex === STORY.length - 1 ? "Skip for now" : "Skip & continue")
+      )
+    );
+  } else if (screen === "story") {
+    const hasClip = !!beatClips[beatIndex];
+    screenContent = h(
+      "div",
+      null,
+      h(
+        "div",
+        { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 } },
+        h("div", { style: { width: 60 } }),
+        h(ProgressDots, { total: STORY.length, current: beatIndex, style: { marginBottom: 0 } }),
+        h(TextButton, { onClick: toggleMute, style: { width: 60, textAlign: "right" } }, muted ? "Unmute" : "Mute")
+      ),
+      h(
+        "div",
+        {
+          style: {
+            background: COLORS.surface, border: "3px solid #000000", borderRadius: 24, marginTop: 24, overflow: "hidden",
+            display: "flex", flexDirection: "column",
+            // Landscape gets its own width treatment (760px) specifically to
+            // use extra horizontal space — forcing the same vertical
+            // min-height there would fight that (landscape viewports are
+            // short) and force needless scrolling, so it's excluded.
+            ...(isLandscape ? {} : { minHeight: CARD_MIN_HEIGHT, boxSizing: "border-box" }),
+          },
+        },
+
+        // Narrate step has two layouts, chosen by actual device orientation
+        // (isLandscape), never by user choice:
+        //  - portrait: image is full-bleed (fills the card's own width,
+        //    flush with its rounded top corners — no side padding eating
+        //    into it) with the story text overlaid book-page style, same
+        //    as before but noticeably bigger since it isn't inset by the
+        //    card's 28px padding anymore.
+        //  - landscape: side-by-side — image fills the left half at full
+        //    row height, plain (non-overlaid) text plus the two buttons
+        //    sit in a padded panel on the right, taking advantage of the
+        //    extra width instead of leaving it as side margin.
+        step === "narrate" && (
+          isLandscape
+            ? h(
+                "div",
+                { style: { display: "flex", alignItems: "stretch", minHeight: 320 } },
+                beat.image && h("img", {
+                  src: beat.image, alt: "",
+                  style: { width: "48%", flexShrink: 0, height: "100%", objectFit: "cover" },
+                }),
+                h(
+                  "div",
+                  { style: { flex: 1, padding: 28, display: "flex", flexDirection: "column", justifyContent: "center" } },
+                  h("p", { style: { fontSize: 17, lineHeight: 1.6, marginBottom: 20 } }, beat.text),
+                  h(
+                    "button",
+                    {
+                      onClick: () => playBeatAudio(beatIndex),
+                      disabled: !hasClip,
+                      style: {
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
+                        borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
+                        fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
+                        opacity: hasClip ? 1 : 0.5, marginBottom: 20, alignSelf: "flex-start",
+                      },
+                    },
+                    h(PlayIcon, null),
+                    "Hear it in Mum's voice"
+                  ),
+                  h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
+                )
+              )
+            : h(
+                "div",
+                { style: { flex: 1, display: "flex", flexDirection: "column" } },
+                beat.image && h("img", {
+                  src: beat.image, alt: "",
+                  style: { display: "block", width: "100%", aspectRatio: "1408 / 768", objectFit: "cover" },
+                }),
+                h(
+                  "div",
+                  { style: { flex: 1, display: "flex", flexDirection: "column", padding: "24px 28px 28px" } },
+                  h("p", { style: { fontSize: 18, lineHeight: 1.7, marginBottom: 24 } }, beat.text),
+                  h(
+                    "button",
+                    {
+                      onClick: () => playBeatAudio(beatIndex),
+                      disabled: !hasClip,
+                      style: {
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        background: COLORS.highlightBg, color: COLORS.primaryDeep, border: "none",
+                        borderRadius: 999, padding: "10px 18px", fontFamily: DISPLAY_FONT, fontWeight: 700,
+                        fontSize: 14, cursor: hasClip ? "pointer" : "not-allowed",
+                        opacity: hasClip ? 1 : 0.5, marginBottom: 24, marginTop: "auto",
+                      },
+                    },
+                    h(PlayIcon, null),
+                    "Hear it in Mum's voice"
+                  ),
+                  h(PrimaryButton, { onClick: () => setStep("identify") }, "Continue")
+                )
+              )
+        ),
+
+        (step === "identify" || step === "face") && h(
+          "div",
+          // No button to anchor to the bottom here (picking a tile *is* the
+          // action), so the extra height from the shared card min-height
+          // gets distributed by centering the question+grid instead of
+          // leaving it pinned to the top with dead space below.
+          { style: { padding: 28, flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" } },
+
+          step === "identify" && h(
+            "div",
+            null,
+            h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 19, marginBottom: 20 } }, "How does he feel right now?"),
+            h(
+              "div",
+              { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
+              getIdentifyOptions(beat.emotion).map((key) => {
+                const e = EMOTIONS.find((em) => em.key === key);
+                return h(
+                  "button",
+                  {
+                    key: e.key,
+                    onClick: () => handleEmotionPick(e.key),
+                    style: {
+                      padding: "22px 8px", borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                      background: COLORS.highlightBg, cursor: "pointer", fontFamily: BODY_FONT,
+                      fontWeight: 700, fontSize: 16, color: COLORS.primaryDeep,
+                    },
+                  },
+                  e.label
+                );
+              })
+            ),
+            feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
+          ),
+
+          step === "face" && (() => {
+            const currentFeature = FACE_STEP_ORDER[faceStepIndex];
+            const rawOptions = getFeatureOptions(currentFeature, beat.emotion);
+            // getFeatureOptions always returns [correct, distractor] — swap
+            // the two positions on a per-step coin flip (featureOptionSwap,
+            // memoized above so it doesn't reshuffle mid-guess) so the
+            // right answer isn't always first.
+            const featureOptions = featureOptionSwap ? [rawOptions[1], rawOptions[0]] : rawOptions;
+            // Only 2 options now (was 3), so each gets to be noticeably
+            // bigger: eyebrows/eyes go full card width (they're wide+short
+            // shapes, so width — not height — is always the binding
+            // constraint); mouth is closer to square, so it gets a wider
+            // cap than before (was 130) since 2 stacked squares at this
+            // size still fit comfortably with room to spare.
+            const rowWidth = currentFeature === "mouth" ? 190 : "100%";
+            // Top half (head preview + question) and bottom half (the 2
+            // options) each get flex:1 inside a column that fills the
+            // step's full height — a real 50/50 split of whatever height
+            // the card ends up at, not just "whatever's left after the
+            // other one's natural size." facePicks accumulates across all
+            // 3 steps (set once in handleEmotionPick when entering "face",
+            // then merged-not-replaced in handleFeaturePick), so the
+            // preview here already shows every previously-correct feature,
+            // not just the current one — this is just the first point
+            // where the preview is big enough to make that obvious. The
+            // explicit gap between the two halves (rather than relying on
+            // each half's own internal centering) is what keeps the
+            // question text and the options block from crowding together.
+            return h(
+              "div",
+              { style: { flex: 1, display: "flex", flexDirection: "column", width: "100%", gap: 18 } },
+              h(
+                "div",
+                { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" } },
+                h(FacePreview, { picks: facePicks, emotion: beat.emotion, size: 170, style: { display: "block", marginBottom: 14 } }),
+                h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 18, textAlign: "center", margin: 0 } }, FEATURE_PROMPTS[currentFeature])
+              ),
+              h(
+                "div",
+                { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 16 } },
+                featureOptions.map((key) => {
+                  const realAspect = REAL_FACE_ASSETS[key] && REAL_FACE_ASSETS[key].swatchAspect[currentFeature];
+                  return h(
+                    "button",
+                    {
+                      key,
+                      onClick: () => handleFeaturePick(key),
+                      "aria-label": key,
+                      style: {
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        padding: 8, width: rowWidth, margin: "0 auto",
+                        aspectRatio: realAspect || FEATURE_BUTTON_ASPECT[currentFeature], borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                        background: COLORS.highlightBg, cursor: "pointer", overflow: "hidden",
+                      },
+                    },
+                    h(FeatureIcon, { feature: currentFeature, emotionKey: key })
+                  );
+                }),
+                feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, margin: "4px 0 0", textAlign: "center" } }, feedback)
+              )
+            );
+          })(),
+
+          correctFlash && h(
+            "div",
+            {
+              style: {
+                marginTop: 18, padding: "10px 14px", borderRadius: 12, background: COLORS.successBg,
+                color: COLORS.success, fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 14, textAlign: "center",
+              },
+            },
+            "That's it!"
+          )
+        ),
+
+        // Shown once all 3 features for this beat are correctly picked —
+        // a brief celebratory pause on the finished face (all 3 real
+        // picks are already in facePicks by now) before moving on, rather
+        // than cutting straight from "mouth correct" into the next beat.
+        step === "reveal" && h(
+          "div",
+          { style: { padding: 28, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" } },
+          h(FacePreview, { picks: facePicks, emotion: beat.emotion, size: 200, style: { display: "block", marginBottom: 20 } }),
+          h("p", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 15, color: COLORS.inkSoft, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 4px" } }, "You found it!"),
+          h("p", { style: { fontFamily: WELCOME_DISPLAY_FONT, fontWeight: 400, fontSize: 28, color: COLORS.primaryDeep, textTransform: "uppercase", margin: "0 0 28px" } }, EMOTIONS.find((e) => e.key === beat.emotion).label),
+          h(PrimaryButton, { onClick: continueFromReveal }, isLastBeat ? "Finish the story" : "Continue")
+        )
+      )
+    );
+  } else if (screen === "end") {
+    screenContent = h(
+      "div",
+      { style: { textAlign: "center", paddingTop: 24 } },
+      h(
+        "div",
+        {
+          style: {
+            width: 88, height: 88, borderRadius: "50%", background: COLORS.successBg,
+            display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 28px",
+          },
+        },
+        h(
+          "svg",
+          { width: 34, height: 34, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
+          h("path", { d: "M5 13l4 4 10-10", stroke: COLORS.success, strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" })
+        )
+      ),
+      h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24, marginBottom: 12, color: COLORS.primaryDeep } }, `Well done, ${name || "there"}!`),
+      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 36, padding: "0 8px" } }, "You noticed how Sam was feeling through the whole morning."),
+      h(PrimaryButton, { onClick: () => setScreen("welcome") }, "Start again")
+    );
+  }
+
+  return h("div", { style: shellStyle }, h("div", { style: cardStyle }, screenContent));
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(h(App));
+</script>
+</body>
+</html>
