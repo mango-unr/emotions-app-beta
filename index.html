@@ -71,6 +71,18 @@ const STORY = [
     emotion: "relieved",
     image: "images/Story-Slide-4.jpeg",
   },
+  {
+    id: 5,
+    text: "Max walks to school holding Mum's hand, his backpack heavy on his shoulders. His tummy feels fluttery and he keeps looking around at all the people. He feels anxious.",
+    emotion: "anxious",
+    image: "images/Story-Slide-5.jpeg",
+  },
+  {
+    id: 6,
+    text: "At the school gate, Max spots his best friend waving at him. He grins and runs to catch up, backpack bouncing with every step. He feels excited.",
+    emotion: "excited",
+    image: "images/Story-Slide-6.jpeg",
+  },
 ];
 
 // Demo login codeword (no real auth in this prototype — see brief).
@@ -105,7 +117,7 @@ if (FIREBASE_CONFIGURED) {
 // =====================================================================
 const h = React.createElement;
 const Fragment = React.Fragment;
-const { useState, useRef, useEffect } = React;
+const { useState, useRef, useEffect, useMemo } = React;
 
 const DISPLAY_FONT = "'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
 // Welcome-screen-only fonts, matching Sonal's splash design. Not applied
@@ -140,15 +152,16 @@ const RECORD_LEAF_COLOR = "#378E80";
 // nothing has to shrink to fit it — shorter screens pad up to match.
 const CARD_MIN_HEIGHT = 610;
 
-// Matches the 4 emotion labels baked into the Emotion-Slide filenames
-// (Exhaustion/Joy/Overwhelm/Relief) rather than an invented set — see
-// the STORY block above. Slides 5/6 (Anxiety/Excitement) aren't wired in
-// yet, pending a story rework to use all 6.
+// Matches the 6 emotion labels baked into the Emotion-Slide filenames
+// (Exhaustion/Joy/Overwhelm/Relief/Anxiety/Excitement) rather than an
+// invented set — see the STORY block above.
 const EMOTIONS = [
   { key: "exhausted", label: "Exhausted", image: "images/Emotion-Slide-1-Exhaustion.jpeg" },
   { key: "joyful", label: "Joyful", image: "images/Emotion-Slide-2-Joy.jpeg" },
   { key: "overwhelmed", label: "Overwhelmed", image: "images/Emotion-Slide-3-Overwhelm.jpeg" },
   { key: "relieved", label: "Relieved", image: "images/Emotion-Slide-4-Relief.jpeg" },
+  { key: "anxious", label: "Anxious", image: "images/Emotion-Slide-5-Anxiety.jpeg" },
+  { key: "excited", label: "Excited", image: "images/Emotion-Slide-6-Excitement.jpeg" },
 ];
 
 // =====================================================================
@@ -192,6 +205,78 @@ const REAL_FACE_ASSETS = {
       eyes: "images/exhausted/swatch-eyes.png",
       mouth: "images/exhausted/swatch-mouth.png",
     },
+    // Each emotion's swatches are cropped tight to their own content, so
+    // their exact proportions differ slightly emotion to emotion (a
+    // joyful mouth isn't the same shape as an exhausted one) — stored
+    // per-emotion so each option button can match its own art exactly,
+    // falling back to FEATURE_BUTTON_ASPECT's rough per-feature default
+    // for emotions that don't have real assets yet.
+    swatchAspect: { eyebrows: "244 / 74", eyes: "250 / 92", mouth: "148 / 146" },
+  },
+  joyful: {
+    blank: "images/joyful/blank.png",
+    eyebrows: "images/joyful/eyebrows.png",
+    eyes: "images/joyful/eyes.png",
+    mouth: "images/joyful/mouth.png",
+    aspectRatio: "555 / 545",
+    swatches: {
+      eyebrows: "images/joyful/swatch-eyebrows.png",
+      eyes: "images/joyful/swatch-eyes.png",
+      mouth: "images/joyful/swatch-mouth.png",
+    },
+    swatchAspect: { eyebrows: "240 / 85", eyes: "231 / 100", mouth: "172 / 109" },
+  },
+  overwhelmed: {
+    blank: "images/overwhelmed/blank.png",
+    eyebrows: "images/overwhelmed/eyebrows.png",
+    eyes: "images/overwhelmed/eyes.png",
+    mouth: "images/overwhelmed/mouth.png",
+    aspectRatio: "517 / 503",
+    swatches: {
+      eyebrows: "images/overwhelmed/swatch-eyebrows.png",
+      eyes: "images/overwhelmed/swatch-eyes.png",
+      mouth: "images/overwhelmed/swatch-mouth.png",
+    },
+    swatchAspect: { eyebrows: "252 / 73", eyes: "248 / 96", mouth: "147 / 73" },
+  },
+  anxious: {
+    blank: "images/anxious/blank.png",
+    eyebrows: "images/anxious/eyebrows.png",
+    eyes: "images/anxious/eyes.png",
+    mouth: "images/anxious/mouth.png",
+    aspectRatio: "500 / 604",
+    swatches: {
+      eyebrows: "images/anxious/swatch-eyebrows.png",
+      eyes: "images/anxious/swatch-eyes.png",
+      mouth: "images/anxious/swatch-mouth.png",
+    },
+    swatchAspect: { eyebrows: "261 / 82", eyes: "247 / 105", mouth: "115 / 62" },
+  },
+  excited: {
+    blank: "images/excited/blank.png",
+    eyebrows: "images/excited/eyebrows.png",
+    eyes: "images/excited/eyes.png",
+    mouth: "images/excited/mouth.png",
+    aspectRatio: "514 / 602",
+    swatches: {
+      eyebrows: "images/excited/swatch-eyebrows.png",
+      eyes: "images/excited/swatch-eyes.png",
+      mouth: "images/excited/swatch-mouth.png",
+    },
+    swatchAspect: { eyebrows: "268 / 77", eyes: "257 / 100", mouth: "193 / 116" },
+  },
+  relieved: {
+    blank: "images/relieved/blank.png",
+    eyebrows: "images/relieved/eyebrows.png",
+    eyes: "images/relieved/eyes.png",
+    mouth: "images/relieved/mouth.png",
+    aspectRatio: "505 / 560",
+    swatches: {
+      eyebrows: "images/relieved/swatch-eyebrows.png",
+      eyes: "images/relieved/swatch-eyes.png",
+      mouth: "images/relieved/swatch-mouth.png",
+    },
+    swatchAspect: { eyebrows: "224 / 67", eyes: "216 / 89", mouth: "141 / 61" },
   },
 };
 
@@ -292,15 +377,37 @@ const FEATURE_PLACEHOLDER_STROKE = {
   strokeLinecap: "round",
 };
 
-// Which 3 emotion keys (correct + 2 distractors) appear as choices for a
-// given feature step, and in what order — fixed/deterministic (not
-// randomized per play) so behavior is easy to reason about and test.
-// The rotation just keeps the correct answer from always landing in the
-// same slot across features.
+// Curated by hand per emotion+feature, picking whichever other emotion's
+// real art looks most obviously different (open vs closed eyes, big open
+// vs thin closed mouth, bold angled vs gentle-curve eyebrows) — not
+// randomized or auto-selected, since random distractors sometimes landed
+// on two options that looked nearly identical. Reuses existing real art
+// (no new assets needed); if a future emotion has no real art yet,
+// FeatureIcon already falls back to the placeholder SVG shape on its own.
+const FEATURE_DISTRACTOR = {
+  exhausted: { eyebrows: "overwhelmed", eyes: "overwhelmed", mouth: "relieved" },
+  joyful: { eyebrows: "overwhelmed", eyes: "overwhelmed", mouth: "anxious" },
+  overwhelmed: { eyebrows: "joyful", eyes: "exhausted", mouth: "excited" },
+  relieved: { eyebrows: "anxious", eyes: "exhausted", mouth: "exhausted" },
+  anxious: { eyebrows: "excited", eyes: "exhausted", mouth: "joyful" },
+  excited: { eyebrows: "anxious", eyes: "overwhelmed", mouth: "overwhelmed" },
+};
+
+// Order here is always [correct, distractor] — which SIDE the correct one
+// renders on is randomized separately, once per step, at the call site.
 function getFeatureOptions(feature, correctKey) {
+  return [correctKey, FEATURE_DISTRACTOR[correctKey][feature]];
+}
+
+// Exactly 4 choices for the identify step: the correct emotion plus 3
+// others, fixed/deterministic per emotion (same reasoning as above) rather
+// than randomized — simplest option that still varies beat to beat since
+// EMOTIONS has 6 keys and a beat's correct answer rotates which 3 "others"
+// get excluded.
+function getIdentifyOptions(correctKey) {
   const others = EMOTIONS.map((e) => e.key).filter((k) => k !== correctKey);
-  const keys = [correctKey, ...others.slice(0, 2)];
-  const seed = (correctKey.length + FACE_STEP_ORDER.indexOf(feature)) % keys.length;
+  const keys = [correctKey, ...others.slice(0, 3)];
+  const seed = correctKey.length % keys.length;
   return keys.slice(seed).concat(keys.slice(0, seed));
 }
 
@@ -551,6 +658,12 @@ function App() {
   // --- Build-a-face step (eyes -> eyebrows -> mouth), reset per beat ---
   const [faceStepIndex, setFaceStepIndex] = useState(0);
   const [facePicks, setFacePicks] = useState({ eyes: null, eyebrows: null, mouth: null });
+  // Which side (0 = first, 1 = second) the correct feature option lands
+  // on — genuinely randomized (not the fixed/deterministic pattern used
+  // for distractor selection), but only re-rolled when the actual step
+  // changes, not on every re-render (e.g. a wrong-pick triggering
+  // `feedback` to update) — otherwise options would jump around mid-guess.
+  const featureOptionSwap = useMemo(() => Math.random() < 0.5, [beatIndex, faceStepIndex]);
 
   // --- Voice recording state (one clip per beat, recorded during setup) ---
   const [recordBeatIndex, setRecordBeatIndex] = useState(0);
@@ -1160,8 +1273,9 @@ function App() {
             h(
               "div",
               { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: feedback ? 14 : 4 } },
-              EMOTIONS.map((e) =>
-                h(
+              getIdentifyOptions(beat.emotion).map((key) => {
+                const e = EMOTIONS.find((em) => em.key === key);
+                return h(
                   "button",
                   {
                     key: e.key,
@@ -1173,29 +1287,28 @@ function App() {
                     },
                   },
                   e.label
-                )
-              )
+                );
+              })
             ),
             feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, marginTop: 4 } }, feedback)
           ),
 
           step === "face" && (() => {
             const currentFeature = FACE_STEP_ORDER[faceStepIndex];
-            const featureOptions = getFeatureOptions(currentFeature, beat.emotion);
-            // Options stack one-per-row instead of 3-across — each row no
-            // longer shares width with 2 siblings, so the art itself can be
-            // far bigger. Eyebrows/eyes are naturally wide+short shapes, so
-            // they use the full row width (their aspect ratio keeps them
-            // from getting too tall). Mouth is closer to square, so full
-            // width would make each option ~360px tall (3 stacked would
-            // blow past the card entirely) — it gets a capped, centered
-            // width instead, landing at roughly the same row height as the
-            // other two features for a consistent-feeling step-to-step size.
-            // Slightly inset from full-width (was 100%/150px) so the
-            // options read as a touch smaller, with a bit less visual
-            // crowding against the card edges and against each other.
-            const rowWidth = currentFeature === "mouth" ? 130 : "92%";
-            // Top half (head preview + question) and bottom half (the 3
+            const rawOptions = getFeatureOptions(currentFeature, beat.emotion);
+            // getFeatureOptions always returns [correct, distractor] — swap
+            // the two positions on a per-step coin flip (featureOptionSwap,
+            // memoized above so it doesn't reshuffle mid-guess) so the
+            // right answer isn't always first.
+            const featureOptions = featureOptionSwap ? [rawOptions[1], rawOptions[0]] : rawOptions;
+            // Only 2 options now (was 3), so each gets to be noticeably
+            // bigger: eyebrows/eyes go full card width (they're wide+short
+            // shapes, so width — not height — is always the binding
+            // constraint); mouth is closer to square, so it gets a wider
+            // cap than before (was 130) since 2 stacked squares at this
+            // size still fit comfortably with room to spare.
+            const rowWidth = currentFeature === "mouth" ? 190 : "100%";
+            // Top half (head preview + question) and bottom half (the 2
             // options) each get flex:1 inside a column that fills the
             // step's full height — a real 50/50 split of whatever height
             // the card ends up at, not just "whatever's left after the
@@ -1219,9 +1332,10 @@ function App() {
               ),
               h(
                 "div",
-                { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 } },
-                featureOptions.map((key) =>
-                  h(
+                { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 16 } },
+                featureOptions.map((key) => {
+                  const realAspect = REAL_FACE_ASSETS[key] && REAL_FACE_ASSETS[key].swatchAspect[currentFeature];
+                  return h(
                     "button",
                     {
                       key,
@@ -1229,14 +1343,14 @@ function App() {
                       "aria-label": key,
                       style: {
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        padding: 6, width: rowWidth, margin: "0 auto",
-                        aspectRatio: FEATURE_BUTTON_ASPECT[currentFeature], borderRadius: 14, border: `2px solid ${COLORS.border}`,
+                        padding: 8, width: rowWidth, margin: "0 auto",
+                        aspectRatio: realAspect || FEATURE_BUTTON_ASPECT[currentFeature], borderRadius: 14, border: `2px solid ${COLORS.border}`,
                         background: COLORS.highlightBg, cursor: "pointer", overflow: "hidden",
                       },
                     },
                     h(FeatureIcon, { feature: currentFeature, emotionKey: key })
-                  )
-                ),
+                  );
+                }),
                 feedback && h("p", { style: { color: COLORS.danger, fontSize: 14, margin: "4px 0 0", textAlign: "center" } }, feedback)
               )
             );
