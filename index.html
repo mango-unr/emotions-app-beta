@@ -989,7 +989,7 @@ function App() {
 
       h("div", { style: { position: "absolute", top: "24.8%", left: "6.3%", right: "6.3%" } },
         h("span", { style: welcomePillStyle("#F6BC2D") }, "Your Name"),
-        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Enter your name", style: welcomeInputStyle })
+        h("input", { value: name, onChange: (e) => setName(e.target.value), placeholder: "Your name", style: welcomeInputStyle })
       ),
 
       h("div", { style: { position: "absolute", top: "51.3%", left: "6.3%", right: "6.3%" } },
@@ -1401,7 +1401,7 @@ function App() {
         )
       ),
       h("h1", { style: { fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24, marginBottom: 12, color: COLORS.primaryDeep } }, `Well done, ${name || "there"}!`),
-      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 36, padding: "0 8px" } }, "You noticed how Sam was feeling through the whole morning."),
+      h("p", { style: { color: COLORS.inkSoft, lineHeight: 1.6, marginBottom: 36, padding: "0 8px" } }, "You noticed how Max was feeling through the whole morning."),
       h(PrimaryButton, { onClick: () => setScreen("welcome") }, "Start again")
     );
   }
